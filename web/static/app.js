@@ -457,6 +457,8 @@ async function loadYouTube() {
     f.elements.client_secrets_file.value = d.client_secrets_file || '';
     f.elements.credentials_cache.value   = d.credentials_cache || '';
     f.elements.playlist_id.value         = d.playlist_id || '';
+    f.elements.category_id.value         = d.category_id || '28';
+    f.elements.keywords.value            = (d.keywords || []).join(', ');
   } catch {}
   loadYouTubeAuthStatus();
 }
@@ -522,6 +524,8 @@ async function saveYouTube(form) {
         client_secrets_file: form.elements.client_secrets_file.value.trim(),
         credentials_cache:   form.elements.credentials_cache.value.trim(),
         playlist_id:         form.elements.playlist_id.value.trim(),
+        category_id:         form.elements.category_id.value,
+        keywords:            form.elements.keywords.value.split(',').map(s => s.trim()).filter(Boolean),
       },
     });
     toast('YouTube settings saved', 'success');

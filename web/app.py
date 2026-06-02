@@ -67,6 +67,8 @@ class YouTubeBody(BaseModel):
     credentials_cache: str = ""
     privacy: str = "unlisted"
     playlist_id: str = ""
+    category_id: str = "28"
+    keywords: list[str] = ["3d printing", "prusa", "timelapse"]
 
 
 class RecordingBody(BaseModel):
