@@ -6,7 +6,7 @@ set -euo pipefail
 INSTALL_DIR="/opt/prusa-cameras"
 CONFIG_DIR="/etc/prusa-cameras"
 DATA_DIR="/var/lib/prusa-cameras"
-SERVICE_USER="${SERVICE_USER:-pi}"
+SERVICE_USER="${SERVICE_USER:-$(whoami)}"
 
 echo "==> Installing system dependencies"
 sudo apt-get update -q
@@ -45,9 +45,14 @@ if ! sudo grep -qF "$SUDOERS_LINE" "$SUDOERS_FILE" 2>/dev/null; then
     echo "    Sudoers rule written to $SUDOERS_FILE"
 fi
 
-echo "==> Installing systemd services"
-sudo cp "$INSTALL_DIR/systemd/prusa-cameras.service"     /etc/systemd/system/
-sudo cp "$INSTALL_DIR/systemd/prusa-cameras-web.service" /etc/systemd/system/
+echo "==> Installing systemd services (user: $SERVICE_USER)"
+# Stamp the actual service user into both unit files
+sed "s/User=pi/User=$SERVICE_USER/g; s/Group=pi/Group=$SERVICE_USER/g" \
+    "$INSTALL_DIR/systemd/prusa-cameras.service" \
+    | sudo tee /etc/systemd/system/prusa-cameras.service > /dev/null
+sed "s/User=pi/User=$SERVICE_USER/g; s/Group=pi/Group=$SERVICE_USER/g" \
+    "$INSTALL_DIR/systemd/prusa-cameras-web.service" \
+    | sudo tee /etc/systemd/system/prusa-cameras-web.service > /dev/null
 sudo systemctl daemon-reload
 
 PI_IP=$(hostname -I | awk '{print $1}')
