@@ -10,8 +10,6 @@ from googleapiclient.http import MediaFileUpload
 
 logger = logging.getLogger(__name__)
 
-YT_CATEGORY = "28"  # Science & Technology
-
 
 class YouTubeUploader:
     def __init__(self, cfg: dict):
@@ -19,6 +17,8 @@ class YouTubeUploader:
         self._creds_cache = cfg.get("credentials_cache", "youtube_creds.json")
         self._privacy = cfg.get("privacy", "unlisted")
         self._playlist_id = cfg.get("playlist_id", "")
+        self._category_id = str(cfg.get("category_id", "28"))
+        self._keywords = cfg.get("keywords", ["3d printing", "prusa", "timelapse"])
         self._svc = None  # lazy-initialised on first upload
 
     # ------------------------------------------------------------------
@@ -35,8 +35,8 @@ class YouTubeUploader:
             "snippet": {
                 "title": title[:100],  # YouTube title limit
                 "description": description or "Recorded by prusa-connect-cameras",
-                "tags": ["3d printing", "prusa", "timelapse"],
-                "categoryId": YT_CATEGORY,
+                "tags": self._keywords,
+                "categoryId": self._category_id,
             },
             "status": {
                 "privacyStatus": self._privacy,

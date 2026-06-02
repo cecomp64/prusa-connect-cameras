@@ -37,3 +37,10 @@ youtube:
   privacy: "unlisted"
   # Playlist ID to add uploads to (optional, leave empty to skip)
   playlist_id: ""
+  # YouTube category ID — 28 = Science & Technology, 26 = Howto & Style, 22 = People & Blogs
+  category_id: "28"
+  # Tags/keywords applied to every upload
+  keywords:
+    - "3d printing"
+    - "prusa"
+    - "timelapse"
