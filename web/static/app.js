@@ -7,6 +7,9 @@ let logWs = null;
 let toastTimer = null;
 let printerPollTimer = null;
 let lastPrinterData  = null;
+let recordingPollTimer = null;
+let recordingCameras = new Set(); // names of cameras currently recording
+let recordingsRefreshTimer = null;
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -35,9 +38,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Recordings section (event delegation)
   document.getElementById('refresh-recs-btn').addEventListener('click', loadRecordings);
   document.getElementById('rec-list').addEventListener('click', e => {
-    const btn = e.target.closest('[data-action="delete-rec"]');
+    const btn = e.target.closest('[data-action]');
     if (!btn) return;
-    deleteRecording(btn.dataset.file);
+    if (btn.dataset.action === 'delete-rec') deleteRecording(btn.dataset.file);
+    if (btn.dataset.action === 'stop-rec')   stopLiveRecording(btn.dataset.cam);
+    if (btn.dataset.action === 'upload-rec') uploadRecording(btn.dataset.file);
   });
 
   // Log controls
@@ -77,6 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
   setInterval(refreshServiceStatus, 30_000);
   loadDashboard();
   startPrinterPoll();
+  startRecordingPoll();
 });
 
 // ── Tab routing ───────────────────────────────────────────────────────────────
@@ -86,10 +92,11 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t =>
     t.classList.toggle('active', t.id === `tab-${name}`));
 
-  if (name === 'dashboard') { loadDashboard(); startPrinterPoll(); }
-  else                        stopPrinterPoll();
+  if (name === 'dashboard') { loadDashboard(); startPrinterPoll(); startRecordingPoll(); }
+  else                        { stopPrinterPoll(); stopRecordingPoll(); }
   if (name === 'settings')   { loadCameraList(); loadPrusaLink(); loadYouTube(); loadRecordingConfig(); }
-  if (name === 'recordings') loadRecordings();
+  if (name === 'recordings') { loadRecordings(); startRecordingsRefresh(); }
+  else                         stopRecordingsRefresh();
   if (name === 'logs')       startLogStream();
 }
 
@@ -145,6 +152,9 @@ async function loadCameraGrid() {
 function buildCameraCard(cam) {
   const card = document.createElement('div');
   card.className = 'camera-card';
+  card.dataset.cam = cam.name;
+
+  const isRecording = recordingCameras.has(cam.name);
 
   const streamContent = cam.webrtc_url
     ? `<iframe src="${esc(cam.webrtc_url)}" frameborder="0" allow="autoplay" allowfullscreen></iframe>`
@@ -157,7 +167,9 @@ function buildCameraCard(cam) {
   card.innerHTML = `
     <div class="stream-wrap">${streamContent}</div>
     <div class="cam-bar">
-      <span class="cam-name">${esc(cam.name)}</span>
+      <span class="cam-name">
+        <span class="rec-dot${isRecording ? '' : ' hidden'}" title="Recording"></span>${esc(cam.name)}
+      </span>
       <div class="cam-actions">
         <button class="btn btn-ghost btn-sm" data-action="edit">Edit</button>
       </div>
@@ -175,6 +187,35 @@ function buildCameraCard(cam) {
 async function loadDashboard() {
   loadCameraGrid();
   await loadPrinterStatus();
+}
+
+function startRecordingPoll() {
+  stopRecordingPoll();
+  refreshRecordingStatus();
+  recordingPollTimer = setInterval(refreshRecordingStatus, 5_000);
+}
+
+function stopRecordingPoll() {
+  if (recordingPollTimer !== null) { clearInterval(recordingPollTimer); recordingPollTimer = null; }
+}
+
+async function refreshRecordingStatus() {
+  try {
+    const { recording } = await api('/api/recording-status');
+    recordingCameras = new Set(recording.map(s => (typeof s === 'string' ? s : s.name)));
+  } catch {
+    recordingCameras = new Set();
+  }
+  // Update dots on any already-rendered camera cards
+  document.querySelectorAll('.camera-card[data-cam]').forEach(card => {
+    const dot = card.querySelector('.rec-dot');
+    const isRecording = recordingCameras.has(card.dataset.cam);
+    if (dot) dot.classList.toggle('hidden', !isRecording);
+    if (!dot && isRecording) {
+      const nameEl = card.querySelector('.cam-name');
+      if (nameEl) nameEl.insertAdjacentHTML('afterbegin', '<span class="rec-dot"></span>');
+    }
+  });
 }
 
 function startPrinterPoll() {
@@ -561,25 +602,91 @@ async function loadRecordings() {
   list.innerHTML = '';
 
   try {
-    const recs = await api('/api/recordings');
+    const [recs, uploads, authStatus] = await Promise.all([
+      api('/api/recordings'),
+      api('/api/uploads/statuses').catch(() => ({})),
+      api('/api/youtube/auth/status').catch(() => ({ authorized: false })),
+    ]);
 
     if (recs.length === 0) {
       empty.classList.remove('hidden');
       return;
     }
     empty.classList.add('hidden');
-
-    list.innerHTML = recs.map(r => `
-      <div class="rec-item">
-        <div class="rec-info">
-          <div class="rec-name">${esc(r.name)}</div>
-          <div class="rec-meta">${fmtBytes(r.size)} &middot; ${fmtDate(r.mtime)}</div>
-        </div>
-        <button class="btn btn-ghost btn-sm btn-danger" data-action="delete-rec" data-file="${esc(r.name)}">Delete</button>
-      </div>
-    `).join('');
+    list.innerHTML = recs.map(r => buildRecordingRow(r, uploads[r.name], authStatus.authorized)).join('');
   } catch (e) {
     list.innerHTML = `<p style="color:var(--red);padding:8px">Error: ${esc(e.message)}</p>`;
+  }
+}
+
+function buildRecordingRow(r, upload, ytAuthorized) {
+  if (r.live) {
+    return `
+      <div class="rec-item rec-item--live">
+        <div class="rec-live-dot"><span class="rec-dot"></span></div>
+        <div class="rec-info">
+          <div class="rec-name">${esc(r.name)}</div>
+          <div class="rec-meta">Recording in progress&hellip;</div>
+        </div>
+        <div class="rec-actions">
+          <button class="btn btn-danger btn-sm" data-action="stop-rec" data-cam="${esc(r.camera_name)}">&#9632; Stop</button>
+        </div>
+      </div>`;
+  }
+
+  let ytBtn = '';
+  if (upload) {
+    if (upload.status === 'pending' || upload.status === 'uploading') {
+      const pct = upload.status === 'uploading' ? ` ${upload.pct}%` : '';
+      ytBtn = `<span class="badge badge-uploading">Uploading${pct}</span>`;
+    } else if (upload.status === 'done' && upload.url) {
+      ytBtn = `<a href="${esc(upload.url)}" target="_blank" class="btn btn-ghost btn-sm yt-done-btn">&#9654; YouTube</a>`;
+    } else if (upload.status === 'error') {
+      ytBtn = `<button class="btn btn-ghost btn-sm" data-action="upload-rec" data-file="${esc(r.name)}" title="${esc(upload.error || '')}">Retry</button>`;
+    }
+  } else if (ytAuthorized) {
+    ytBtn = `<button class="btn btn-ghost btn-sm" data-action="upload-rec" data-file="${esc(r.name)}">&#8593; YouTube</button>`;
+  }
+
+  return `
+    <div class="rec-item">
+      <div class="rec-info">
+        <div class="rec-name">${esc(r.name)}</div>
+        <div class="rec-meta">${fmtBytes(r.size)} &middot; ${fmtDate(r.mtime)}</div>
+      </div>
+      <div class="rec-actions">
+        ${ytBtn}
+        <button class="btn btn-ghost btn-sm btn-danger" data-action="delete-rec" data-file="${esc(r.name)}">Delete</button>
+      </div>
+    </div>`;
+}
+
+function startRecordingsRefresh() {
+  stopRecordingsRefresh();
+  recordingsRefreshTimer = setInterval(loadRecordings, 4_000);
+}
+
+function stopRecordingsRefresh() {
+  if (recordingsRefreshTimer !== null) { clearInterval(recordingsRefreshTimer); recordingsRefreshTimer = null; }
+}
+
+async function stopLiveRecording(cameraName) {
+  try {
+    await api(`/api/recording-status/stop/${encodeURIComponent(cameraName)}`, { method: 'POST' });
+    toast('Recording stopped', 'success');
+    loadRecordings();
+  } catch (e) {
+    toast(`Stop failed: ${e.message}`, 'error');
+  }
+}
+
+async function uploadRecording(filename) {
+  try {
+    await api(`/api/recordings/${encodeURIComponent(filename)}/upload`, { method: 'POST' });
+    toast('Upload started', 'success');
+    loadRecordings();
+  } catch (e) {
+    toast(`Upload failed: ${e.message}`, 'error');
   }
 }
 

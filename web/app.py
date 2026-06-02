@@ -6,8 +6,12 @@ Reads/writes the shared config.yaml and proxies RTSP streams as MJPEG.
 """
 
 import asyncio
+import json
 import os
+import pickle
+import signal
 import subprocess
+import threading
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -24,6 +28,9 @@ from pydantic import BaseModel
 app = FastAPI(title="Prusa Camera Manager")
 
 CONFIG_PATH = Path(os.environ.get("CONFIG", "/etc/prusa-cameras/config.yaml"))
+
+# In-memory upload state: filename → {status, pct, url, error}
+_uploads: dict[str, dict] = {}
 
 
 # ── Config helpers ─────────────────────────────────────────────────────────────
@@ -398,6 +405,43 @@ def youtube_auth_complete(body: CompleteAuthBody):
     return {"ok": True}
 
 
+# ── Recording status ───────────────────────────────────────────────────────────
+
+_STATUS_FILE = Path("/tmp/prusa-cameras-status.json")
+
+
+@app.get("/api/recording-status")
+def recording_status():
+    try:
+        return json.loads(_STATUS_FILE.read_text())
+    except Exception:
+        return {"recording": []}
+
+
+@app.post("/api/recording-status/stop/{camera_name}")
+def stop_recording(camera_name: str):
+    try:
+        data = json.loads(_STATUS_FILE.read_text())
+    except Exception:
+        raise HTTPException(404, "No active recordings found")
+    sessions = data.get("recording", [])
+    session = next((s for s in sessions if isinstance(s, dict) and s.get("name") == camera_name), None)
+    if not session:
+        raise HTTPException(404, f"No active recording for '{camera_name}'")
+    pid = session.get("pid")
+    if pid:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    data["recording"] = [s for s in sessions if not (isinstance(s, dict) and s.get("name") == camera_name)]
+    try:
+        _STATUS_FILE.write_text(json.dumps(data))
+    except OSError:
+        pass
+    return {"ok": True}
+
+
 # ── Service status / control ───────────────────────────────────────────────────
 
 @app.get("/api/service/status")
@@ -458,12 +502,39 @@ async def get_snapshot(camera_name: str):
 def list_recordings():
     cfg = load_config()
     rec_dir = Path(cfg.get("recording", {}).get("output_dir", "/var/lib/prusa-cameras/recordings"))
-    if not rec_dir.exists():
-        return []
-    return [
-        {"name": f.name, "size": f.stat().st_size, "mtime": f.stat().st_mtime}
-        for f in sorted(rec_dir.glob("*.mp4"), key=lambda x: x.stat().st_mtime, reverse=True)
-    ]
+
+    # Build map of filename → session for any active recordings
+    live_by_name: dict[str, dict] = {}
+    try:
+        for s in json.loads(_STATUS_FILE.read_text()).get("recording", []):
+            if isinstance(s, dict) and "path" in s:
+                live_by_name[Path(s["path"]).name] = s
+    except Exception:
+        pass
+
+    results = []
+    if rec_dir.exists():
+        for f in sorted(rec_dir.glob("*.mp4"), key=lambda x: x.stat().st_mtime, reverse=True):
+            session = live_by_name.pop(f.name, None)
+            results.append({
+                "name": f.name,
+                "size": f.stat().st_size,
+                "mtime": f.stat().st_mtime,
+                "live": session is not None,
+                "camera_name": session["name"] if session else None,
+            })
+
+    # Sessions whose files haven't appeared on disk yet
+    for fname, session in live_by_name.items():
+        results.insert(0, {
+            "name": fname,
+            "size": 0,
+            "mtime": 0,
+            "live": True,
+            "camera_name": session["name"],
+        })
+
+    return results
 
 
 @app.delete("/api/recordings/{filename}", status_code=204)
@@ -476,6 +547,90 @@ def delete_recording(filename: str):
     if not path.exists():
         raise HTTPException(404)
     path.unlink()
+
+
+@app.post("/api/recordings/{filename}/upload")
+def start_upload(filename: str):
+    if "/" in filename or ".." in filename or not filename.endswith(".mp4"):
+        raise HTTPException(400, "Invalid filename")
+    if _uploads.get(filename, {}).get("status") == "uploading":
+        raise HTTPException(409, "Upload already in progress")
+    cfg = load_config()
+    rec_dir = Path(cfg.get("recording", {}).get("output_dir", "/var/lib/prusa-cameras/recordings"))
+    video_path = rec_dir / filename
+    if not video_path.exists():
+        raise HTTPException(404, "Recording not found")
+    _uploads[filename] = {"status": "pending", "pct": 0, "url": None, "error": None}
+    threading.Thread(target=_do_upload, args=(filename, str(video_path), cfg), daemon=True).start()
+    return {"ok": True}
+
+
+@app.get("/api/uploads/statuses")
+def get_upload_statuses():
+    return _uploads
+
+
+def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
+    from googleapiclient.discovery import build
+    from googleapiclient.http import MediaFileUpload
+
+    yt = cfg.get("youtube", {})
+    creds_file = yt.get("credentials_cache", "")
+    try:
+        if not creds_file or not Path(creds_file).exists():
+            raise RuntimeError("YouTube credentials not found — authorize in Settings → YouTube")
+        with open(creds_file, "rb") as f:
+            creds = pickle.load(f)
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
+                creds.refresh(GoogleRequest())
+                with open(creds_file, "wb") as f:
+                    pickle.dump(creds, f)
+            else:
+                raise RuntimeError("YouTube credentials expired — re-authorize in Settings → YouTube")
+
+        svc = build("youtube", "v3", credentials=creds, cache_discovery=False)
+        body = {
+            "snippet": {
+                "title": filename[:100],
+                "description": "Recorded by prusa-connect-cameras",
+                "tags": yt.get("keywords", []),
+                "categoryId": str(yt.get("category_id", "28")),
+            },
+            "status": {
+                "privacyStatus": yt.get("privacy", "unlisted"),
+                "selfDeclaredMadeForKids": False,
+            },
+        }
+        media = MediaFileUpload(video_path, chunksize=10 * 1024 * 1024, resumable=True)
+        req = svc.videos().insert(part=",".join(body.keys()), body=body, media_body=media)
+
+        _uploads[filename] = {"status": "uploading", "pct": 0, "url": None, "error": None}
+        response = None
+        while response is None:
+            status, response = req.next_chunk()
+            if status:
+                _uploads[filename]["pct"] = int(status.progress() * 100)
+
+        video_id = response["id"]
+        url = f"https://youtu.be/{video_id}"
+
+        playlist_id = yt.get("playlist_id", "")
+        if playlist_id:
+            try:
+                svc.playlistItems().insert(
+                    part="snippet",
+                    body={"snippet": {
+                        "playlistId": playlist_id,
+                        "resourceId": {"kind": "youtube#video", "videoId": video_id},
+                    }},
+                ).execute()
+            except Exception:
+                pass
+
+        _uploads[filename] = {"status": "done", "pct": 100, "url": url, "error": None}
+    except Exception as exc:
+        _uploads[filename] = {"status": "error", "pct": 0, "url": None, "error": str(exc)}
 
 
 # ── Live logs via WebSocket ───────────────────────────────────────────────────

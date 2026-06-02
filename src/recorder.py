@@ -1,5 +1,6 @@
 """Manages per-camera FFmpeg recording sessions."""
 
+import json
 import logging
 import subprocess
 import threading
@@ -7,6 +8,8 @@ import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+STATUS_FILE = Path("/tmp/prusa-cameras-status.json")
 
 
 class Recorder:
@@ -36,6 +39,17 @@ class Recorder:
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _write_status(self) -> None:
+        with self._lock:
+            sessions = [
+                {"name": name, "pid": proc.pid, "path": str(out)}
+                for name, (proc, out) in self._sessions.items()
+            ]
+        try:
+            STATUS_FILE.write_text(json.dumps({"recording": sessions}))
+        except OSError:
+            pass
+
     def _start(self, cam: dict, label: str) -> None:
         name = cam["name"]
         with self._lock:
@@ -64,6 +78,7 @@ class Recorder:
         with self._lock:
             self._sessions[name] = (proc, out)
         logger.info("[%s] Recording started → %s", name, out)
+        self._write_status()
 
     def _stop(self, name: str) -> str | None:
         with self._lock:
@@ -84,6 +99,8 @@ class Recorder:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
+
+        self._write_status()
 
         if out.exists() and out.stat().st_size > 0:
             logger.info("[%s] Recording saved → %s (%d MB)", name, out, out.stat().st_size // 1_048_576)

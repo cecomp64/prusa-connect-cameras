@@ -227,9 +227,25 @@ main {
   gap: 8px;
 }
 
-.cam-name { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cam-name { font-weight: 600; font-size: 14px; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
 
 .cam-actions { display: flex; gap: 4px; flex-shrink: 0; }
+
+.rec-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  flex-shrink: 0;
+  animation: rec-pulse 1.4s ease-in-out infinite;
+}
+.rec-dot.hidden { display: none; }
+
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .35; }
+}
 
 /* ── Settings grid ───────────────────────────────────────────────────────────── */
 .settings-grid {
@@ -341,6 +357,30 @@ em.muted { font-style: normal; }
 .rec-info { flex: 1; min-width: 0; }
 .rec-name { font-family: var(--mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rec-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+.rec-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+.rec-item--live {
+  border-color: rgba(248,81,73,.4);
+  background: rgba(248,81,73,.06);
+}
+.rec-live-dot { display: flex; align-items: center; flex-shrink: 0; }
+
+.badge-uploading {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(210,153,34,.15);
+  color: var(--yellow);
+}
+.badge-uploading::before { content: ''; display: inline-block; width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--yellow); border-top-color: transparent; animation: spin .7s linear infinite; }
+
+.yt-done-btn { color: var(--red); }
+
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── Log view ────────────────────────────────────────────────────────────────── */
 #log-output {
