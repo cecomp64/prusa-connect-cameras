@@ -283,24 +283,28 @@ def youtube_auth_complete(body: CompleteAuthBody):
     # Make the token exchange directly so code_verifier is guaranteed in the POST
     # body — google_auth_oauthlib silently drops it when the flow is reconstructed.
     import requests as _req
+    resp = _req.post(
+        client["token_uri"],
+        data={
+            "code":          code,
+            "client_id":     client["client_id"],
+            "client_secret": client["client_secret"],
+            "redirect_uri":  _LOOPBACK_REDIRECT,
+            "grant_type":    "authorization_code",
+        },
+    )
+    # Always parse the body so we can surface Google's actual error message
     try:
-        resp = _req.post(
-            client["token_uri"],
-            data={
-                "code":          code,
-                "client_id":     client["client_id"],
-                "client_secret": client["client_secret"],
-                "redirect_uri":  _LOOPBACK_REDIRECT,
-                "grant_type":    "authorization_code",
-            },
-        )
-        resp.raise_for_status()
         token_data = resp.json()
-    except Exception as exc:
-        raise HTTPException(400, f"Token exchange failed: {exc}")
+    except Exception:
+        raise HTTPException(400, f"Google returned HTTP {resp.status_code}: {resp.text[:300]}")
 
-    if "error" in token_data:
-        raise HTTPException(400, f"{token_data['error']}: {token_data.get('error_description', '')}")
+    if not resp.ok or "error" in token_data:
+        err  = token_data.get("error", f"HTTP {resp.status_code}")
+        desc = token_data.get("error_description", "")
+        msg  = f"{err}: {desc}"
+        import logging; logging.getLogger("youtube_auth").error("Token exchange failed — %s | full response: %s", msg, token_data)
+        raise HTTPException(400, msg)
 
     # Build a Credentials object from the raw token response
     from google.oauth2.credentials import Credentials

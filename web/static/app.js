@@ -339,13 +339,14 @@ async function loadYouTubeAuthStatus() {
 
 async function startYouTubeAuth() {
   const btn = document.getElementById('yt-auth-start-btn');
+  // Hide any previous step-2 so a stale code can't be accidentally re-submitted
+  document.getElementById('yt-auth-step2').classList.add('hidden');
+  document.getElementById('yt-redirect-paste').value = '';
   btn.disabled = true;
   try {
     const { auth_url } = await api('/api/youtube/auth/start', { method: 'POST' });
     document.getElementById('yt-auth-link').href = auth_url;
-    document.getElementById('yt-redirect-paste').value = '';
     document.getElementById('yt-auth-step2').classList.remove('hidden');
-    // Open in new tab automatically
     window.open(auth_url, '_blank');
   } catch (e) {
     toast(`Could not start auth: ${e.message}`, 'error');
@@ -368,6 +369,7 @@ async function completeYouTubeAuth() {
     document.getElementById('yt-auth-step2').classList.add('hidden');
     loadYouTubeAuthStatus();
   } catch (e) {
+    console.error('YouTube auth complete failed:', e.message);
     toast(`Authorization failed: ${e.message}`, 'error');
   } finally {
     btn.disabled = false;
