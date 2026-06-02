@@ -13,9 +13,12 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import Response, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from google.auth.transport.requests import Request as GoogleRequest
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
 from pydantic import BaseModel
 
 app = FastAPI(title="Prusa Camera Manager")
@@ -155,6 +158,118 @@ def update_recording_config(body: RecordingBody):
     cfg["recording"] = body.model_dump()
     save_config(cfg)
     return cfg["recording"]
+
+
+# ── YouTube OAuth flow ────────────────────────────────────────────────────────
+
+_YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+# state token → in-progress Flow (single-user, in-memory is fine)
+_pending_flows: dict[str, Flow] = {}
+
+
+@app.get("/api/youtube/auth/redirect-uri")
+def youtube_redirect_uri(request: Request):
+    """Returns the redirect URI the user must register in Google Cloud Console."""
+    return {"redirect_uri": _callback_uri(request)}
+
+
+@app.get("/api/youtube/auth/status")
+def youtube_auth_status():
+    cfg = load_config()
+    creds_file = cfg.get("youtube", {}).get("credentials_cache", "")
+    if not creds_file or not Path(creds_file).exists():
+        return {"authorized": False}
+    try:
+        creds = Credentials.from_authorized_user_file(creds_file, _YOUTUBE_SCOPES)
+        if creds.valid:
+            return {"authorized": True}
+        if creds.expired and creds.refresh_token:
+            creds.refresh(GoogleRequest())
+            Path(creds_file).write_text(creds.to_json())
+            return {"authorized": True}
+    except Exception:
+        pass
+    return {"authorized": False}
+
+
+@app.get("/api/youtube/auth/start")
+def youtube_auth_start(request: Request):
+    cfg = load_config()
+    secrets_file = cfg.get("youtube", {}).get("client_secrets_file", "")
+    if not secrets_file or not Path(secrets_file).exists():
+        raise HTTPException(
+            400,
+            f"client_secrets.json not found at '{secrets_file}'. "
+            "Set the path in Settings → YouTube and save first.",
+        )
+    try:
+        flow = Flow.from_client_secrets_file(
+            secrets_file,
+            scopes=_YOUTUBE_SCOPES,
+            redirect_uri=_callback_uri(request),
+        )
+    except Exception as exc:
+        raise HTTPException(400, f"Could not read client_secrets.json: {exc}")
+
+    auth_url, state = flow.authorization_url(
+        access_type="offline",
+        prompt="consent",          # always request a refresh token
+        include_granted_scopes="true",
+    )
+    _pending_flows[state] = flow
+    return RedirectResponse(auth_url)
+
+
+@app.get("/api/youtube/oauth/callback")
+def youtube_oauth_callback(
+    request: Request,
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    if error:
+        return HTMLResponse(_auth_page(False, f"Authorization denied: {error}"))
+    if not state or state not in _pending_flows:
+        return HTMLResponse(_auth_page(False, "Invalid or expired OAuth state — please try again."))
+
+    flow = _pending_flows.pop(state)
+    try:
+        flow.fetch_token(code=code)
+    except Exception as exc:
+        return HTMLResponse(_auth_page(False, f"Token exchange failed: {exc}"))
+
+    cfg = load_config()
+    creds_file = cfg.get("youtube", {}).get(
+        "credentials_cache", "/var/lib/prusa-cameras/youtube_creds.json"
+    )
+    try:
+        dest = Path(creds_file)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(flow.credentials.to_json())
+    except Exception as exc:
+        return HTMLResponse(_auth_page(False, f"Failed to save credentials: {exc}"))
+
+    return HTMLResponse(_auth_page(True, "YouTube authorized successfully. You can close this tab."))
+
+
+def _callback_uri(request: Request) -> str:
+    return str(request.base_url).rstrip("/") + "/api/youtube/oauth/callback"
+
+
+def _auth_page(success: bool, message: str) -> str:
+    icon  = "&#10003;" if success else "&#10007;"
+    color = "#3fb950"  if success else "#f85149"
+    close = "setTimeout(() => window.close(), 2000);" if success else ""
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>YouTube Auth</title></head>
+<body style="font-family:sans-serif;background:#0d1117;color:#e6edf3;
+             display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+  <div style="text-align:center;max-width:420px;padding:40px">
+    <div style="font-size:64px;color:{color}">{icon}</div>
+    <p style="margin-top:16px;font-size:15px;line-height:1.5">{message}</p>
+    <script>{close}</script>
+  </div>
+</body></html>"""
 
 
 # ── Service status / control ───────────────────────────────────────────────────

@@ -54,6 +54,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('preview-refresh-btn').addEventListener('click', () => {
     if (editingName) loadPreviewImage(editingName);
   });
+  document.getElementById('yt-auth-refresh-btn').addEventListener('click', loadYouTubeAuthStatus);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
   // Password show/hide (all .toggle-pw buttons)
@@ -341,11 +342,32 @@ async function loadYouTube() {
   try {
     const d = await api('/api/youtube');
     const f = document.getElementById('youtube-form');
-    f.elements.enabled.checked         = !!d.enabled;
-    f.elements.privacy.value           = d.privacy || 'unlisted';
+    f.elements.enabled.checked           = !!d.enabled;
+    f.elements.privacy.value             = d.privacy || 'unlisted';
     f.elements.client_secrets_file.value = d.client_secrets_file || '';
-    f.elements.credentials_cache.value = d.credentials_cache || '';
-    f.elements.playlist_id.value       = d.playlist_id || '';
+    f.elements.credentials_cache.value   = d.credentials_cache || '';
+    f.elements.playlist_id.value         = d.playlist_id || '';
+  } catch {}
+  loadYouTubeAuthStatus();
+  loadYouTubeRedirectUri();
+}
+
+async function loadYouTubeAuthStatus() {
+  const badge = document.getElementById('yt-auth-badge');
+  try {
+    const { authorized } = await api('/api/youtube/auth/status');
+    badge.className = `badge badge-${authorized ? 'active' : 'inactive'}`;
+    badge.textContent = authorized ? 'Authorized' : 'Not authorized';
+  } catch {
+    badge.className = 'badge badge-unknown';
+    badge.textContent = 'Unknown';
+  }
+}
+
+async function loadYouTubeRedirectUri() {
+  try {
+    const { redirect_uri } = await api('/api/youtube/auth/redirect-uri');
+    document.getElementById('yt-redirect-uri').textContent = redirect_uri;
   } catch {}
 }
 

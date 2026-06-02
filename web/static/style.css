@@ -468,6 +468,55 @@ em.muted { font-style: normal; }
 }
 .empty-icon { font-size: 48px; opacity: .4; }
 
+/* ── YouTube auth row ────────────────────────────────────────────────────────── */
+.yt-auth-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0 2px;
+  border-top: 1px solid var(--border);
+}
+
+.yt-setup-help {
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.yt-setup-help summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  user-select: none;
+  padding: 2px 0;
+}
+.yt-setup-help summary:hover { color: var(--text); }
+
+.yt-setup-help ol {
+  margin: 10px 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.5;
+}
+
+.yt-setup-help a { color: var(--accent); text-decoration: none; }
+.yt-setup-help a:hover { text-decoration: underline; }
+
+.redirect-uri {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: var(--surface-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: 11px;
+  word-break: break-all;
+  color: var(--text);
+  user-select: all;
+}
+
 /* ── Utility ─────────────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }
 

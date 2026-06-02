@@ -98,6 +98,25 @@
                 <input name="playlist_id" type="text" placeholder="">
               </label>
               <button type="submit" class="btn btn-primary">Save YouTube</button>
+
+              <div class="yt-auth-row">
+                <span id="yt-auth-badge" class="badge badge-unknown">Checking&hellip;</span>
+                <a id="yt-auth-btn" href="/api/youtube/auth/start" target="_blank" class="btn btn-primary btn-sm">Authorize with Google</a>
+                <button type="button" class="btn btn-ghost btn-sm" id="yt-auth-refresh-btn">&#8635;</button>
+              </div>
+
+              <details class="yt-setup-help">
+                <summary>Google Cloud setup instructions</summary>
+                <ol>
+                  <li>Create a project at <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a> and enable <strong>YouTube Data API v3</strong></li>
+                  <li>Go to <strong>APIs &amp; Services → Credentials → Create credentials → OAuth 2.0 Client ID</strong></li>
+                  <li>Choose type <strong>Web application</strong></li>
+                  <li>Under <strong>Authorized redirect URIs</strong> add exactly:<br>
+                    <code id="yt-redirect-uri" class="redirect-uri">loading&hellip;</code></li>
+                  <li>Download the JSON and save it to the path in <em>Client secrets file</em> above</li>
+                  <li>Save this form, then click <strong>Authorize with Google</strong></li>
+                </ol>
+              </details>
             </form>
           </div>
 
