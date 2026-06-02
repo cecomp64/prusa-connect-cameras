@@ -64,6 +64,7 @@
             </div>
           </div>
         </div>
+        <div id="printer-controls" class="printer-controls hidden"></div>
 
         <!-- Camera streams grid -->
         <div id="camera-grid" class="camera-grid"></div>
@@ -277,6 +278,40 @@
       <div class="modal-footer">
         <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
         <button class="btn btn-primary" id="modal-save">Save camera</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── File upload modal ────────────────────────────────────────────────────── -->
+  <div id="upload-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Upload print file</h3>
+        <button class="btn btn-ghost btn-icon" id="upload-close-btn" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-body">
+          <label>
+            <span>File <em class="muted">(.gcode or .bgcode)</em></span>
+            <input type="file" id="upload-file-input" accept=".gcode,.bgcode">
+          </label>
+          <label>
+            <span>Storage destination</span>
+            <select id="upload-storage">
+              <option value="usb">USB drive</option>
+              <option value="local">Local storage</option>
+            </select>
+          </label>
+          <label class="label-inline">
+            <input type="checkbox" id="upload-print-after">
+            <span>Start print immediately after upload</span>
+          </label>
+          <p id="upload-status" class="upload-status hidden"></p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="upload-cancel-btn">Cancel</button>
+        <button class="btn btn-primary" id="upload-confirm-btn">Upload</button>
       </div>
     </div>
   </div>

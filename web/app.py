@@ -18,7 +18,7 @@ from typing import Optional
 
 import requests
 import yaml
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.auth.transport.requests import Request as GoogleRequest
@@ -192,6 +192,105 @@ def get_printer_status():
             "display_name":    job.get("display_name"),
         } if job else None,
     }
+
+
+def _pl_config() -> tuple[str, str]:
+    cfg = load_config()
+    pl = cfg.get("prusalink", {})
+    if not pl.get("host") or not pl.get("api_key"):
+        raise HTTPException(503, "PrusaLink not configured")
+    return pl["host"].rstrip("/"), pl["api_key"]
+
+
+@app.post("/api/printer/control/pause")
+def printer_pause():
+    host, api_key = _pl_config()
+    try:
+        r = requests.post(
+            f"{host}/api/job",
+            headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
+            json={"command": "pause", "action": "pause"},
+            timeout=10,
+        )
+        r.raise_for_status()
+    except requests.HTTPError as exc:
+        raise HTTPException(exc.response.status_code, exc.response.text[:200])
+    except Exception as exc:
+        raise HTTPException(503, str(exc))
+    return {"ok": True}
+
+
+@app.post("/api/printer/control/resume")
+def printer_resume():
+    host, api_key = _pl_config()
+    try:
+        r = requests.post(
+            f"{host}/api/job",
+            headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
+            json={"command": "pause", "action": "resume"},
+            timeout=10,
+        )
+        r.raise_for_status()
+    except requests.HTTPError as exc:
+        raise HTTPException(exc.response.status_code, exc.response.text[:200])
+    except Exception as exc:
+        raise HTTPException(503, str(exc))
+    return {"ok": True}
+
+
+@app.post("/api/printer/control/stop")
+def printer_stop():
+    host, api_key = _pl_config()
+    try:
+        r = requests.post(
+            f"{host}/api/job",
+            headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
+            json={"command": "cancel"},
+            timeout=10,
+        )
+        r.raise_for_status()
+    except requests.HTTPError as exc:
+        raise HTTPException(exc.response.status_code, exc.response.text[:200])
+    except Exception as exc:
+        raise HTTPException(503, str(exc))
+    return {"ok": True}
+
+
+@app.post("/api/printer/upload")
+def printer_upload(
+    file: UploadFile = File(...),
+    storage: str = Form("usb"),
+    print_after_upload: str = Form("false"),
+):
+    from urllib.parse import quote as urlquote
+    if storage not in ("usb", "local"):
+        raise HTTPException(400, "storage must be 'usb' or 'local'")
+    fname = file.filename or ""
+    if not fname.lower().endswith((".gcode", ".bgcode")):
+        raise HTTPException(400, "Only .gcode and .bgcode files are supported")
+    host, api_key = _pl_config()
+    do_print = print_after_upload.lower() in ("true", "1", "yes")
+    data = file.file.read()
+    headers: dict[str, str] = {
+        "X-Api-Key": api_key,
+        "Content-Type": "application/octet-stream",
+        "Overwrite": "?1",
+    }
+    if do_print:
+        headers["Print-After-Upload"] = "?1"
+    try:
+        r = requests.put(
+            f"{host}/api/v1/files/{storage}/{urlquote(fname)}",
+            headers=headers,
+            data=data,
+            timeout=120,
+        )
+        r.raise_for_status()
+    except requests.HTTPError as exc:
+        raise HTTPException(exc.response.status_code, exc.response.text[:200])
+    except Exception as exc:
+        raise HTTPException(503, str(exc))
+    return {"ok": True, "filename": fname}
 
 
 @app.get("/api/youtube")

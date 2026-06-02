@@ -10,6 +10,7 @@ let lastPrinterData  = null;
 let recordingPollTimer = null;
 let recordingCameras = new Set(); // names of cameras currently recording
 let recordingsRefreshTimer = null;
+let printerConfirmPending = null; // { label, fn } while awaiting inline confirmation
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -64,7 +65,13 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('yt-auth-refresh-btn').addEventListener('click', loadYouTubeAuthStatus);
   document.getElementById('yt-auth-start-btn').addEventListener('click', startYouTubeAuth);
   document.getElementById('yt-auth-complete-btn').addEventListener('click', completeYouTubeAuth);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  document.getElementById('upload-close-btn').addEventListener('click', closeUploadModal);
+  document.getElementById('upload-cancel-btn').addEventListener('click', closeUploadModal);
+  document.getElementById('upload-confirm-btn').addEventListener('click', doUpload);
+  document.getElementById('upload-overlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeUploadModal();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeUploadModal(); } });
 
   // Password show/hide (all .toggle-pw buttons)
   document.addEventListener('click', e => {
@@ -252,6 +259,7 @@ async function loadPrinterStatus() {
       badge.className    = 'printer-badge printer-badge--unknown';
       statsWrap.classList.add('printer-offline');
       setNotice(`Could not reach server: ${e.message}`);
+      hidePrinterControls();
     }
     return;
   }
@@ -263,6 +271,7 @@ async function loadPrinterStatus() {
     document.getElementById('printer-last-updated').textContent  = '';
     statsWrap.classList.add('printer-offline');
     setNotice('PrusaLink not configured — printer stats unavailable.', true);
+    hidePrinterControls();
     return;
   }
 
@@ -275,6 +284,7 @@ async function loadPrinterStatus() {
       badge.className   = 'printer-badge printer-badge--unknown';
       statsWrap.classList.add('printer-offline');
       setNotice(data.error ? `Printer unreachable: ${data.error}` : 'Printer unreachable — check connection');
+      hidePrinterControls();
     }
     return;
   }
@@ -320,6 +330,8 @@ function renderPrinterLive(data, stale) {
   } else {
     jobPanel.classList.add('hidden');
   }
+
+  renderPrinterControls(state, stale);
 }
 
 function printerStateBadgeClass(state) {
@@ -747,6 +759,140 @@ function startLogStream() {
 
 function clearLogs() {
   document.getElementById('log-output').textContent = '';
+}
+
+// ── Printer controls ──────────────────────────────────────────────────────────
+
+function hidePrinterControls() {
+  printerConfirmPending = null;
+  const el = document.getElementById('printer-controls');
+  if (el) el.classList.add('hidden');
+}
+
+function renderPrinterControls(state, stale) {
+  const el = document.getElementById('printer-controls');
+  if (!el) return;
+
+  if (stale) { hidePrinterControls(); return; }
+
+  const isPrinting = state === 'PRINTING';
+  const isPaused   = state === 'PAUSED';
+  const isActive   = isPrinting || isPaused;
+
+  if (printerConfirmPending) {
+    el.classList.remove('hidden');
+    el.innerHTML = `
+      <span class="printer-confirm-label">${esc(printerConfirmPending.label)}</span>
+      <button class="btn btn-danger btn-sm" id="printer-confirm-yes">Confirm</button>
+      <button class="btn btn-ghost btn-sm" id="printer-confirm-cancel">Cancel</button>
+    `;
+    document.getElementById('printer-confirm-yes').onclick = () => {
+      const fn = printerConfirmPending.fn;
+      printerConfirmPending = null;
+      fn();
+    };
+    document.getElementById('printer-confirm-cancel').onclick = () => {
+      printerConfirmPending = null;
+      renderPrinterControls(state, stale);
+    };
+    return;
+  }
+
+  el.classList.remove('hidden');
+  el.innerHTML = `
+    ${isPrinting ? '<button class="btn btn-ghost btn-sm" id="pc-pause">&#9646;&#9646; Pause</button>' : ''}
+    ${isPaused   ? '<button class="btn btn-ghost btn-sm" id="pc-resume">&#9654; Resume</button>' : ''}
+    ${isActive   ? '<button class="btn btn-ghost btn-sm btn-danger" id="pc-stop">&#9632; Stop</button>' : ''}
+    <button class="btn btn-ghost btn-sm" id="pc-upload">&#8593; Upload file</button>
+  `;
+
+  if (isPrinting) document.getElementById('pc-pause').onclick  = () => startPrinterConfirm('Pause the print?', printerPause, state, stale);
+  if (isPaused)   document.getElementById('pc-resume').onclick = () => startPrinterConfirm('Resume the print?', printerResume, state, stale);
+  if (isActive)   document.getElementById('pc-stop').onclick   = () => startPrinterConfirm('Stop the print? This cannot be undone.', printerStop, state, stale);
+  document.getElementById('pc-upload').onclick = openUploadModal;
+}
+
+function startPrinterConfirm(label, fn, state, stale) {
+  printerConfirmPending = { label, fn };
+  renderPrinterControls(state, stale);
+}
+
+async function printerPause() {
+  try {
+    await api('/api/printer/control/pause', { method: 'POST' });
+    toast('Print paused', 'success');
+  } catch (e) { toast(`Pause failed: ${e.message}`, 'error'); }
+  loadPrinterStatus();
+}
+
+async function printerResume() {
+  try {
+    await api('/api/printer/control/resume', { method: 'POST' });
+    toast('Print resumed', 'success');
+  } catch (e) { toast(`Resume failed: ${e.message}`, 'error'); }
+  loadPrinterStatus();
+}
+
+async function printerStop() {
+  try {
+    await api('/api/printer/control/stop', { method: 'POST' });
+    toast('Print stopped', 'success');
+  } catch (e) { toast(`Stop failed: ${e.message}`, 'error'); }
+  loadPrinterStatus();
+}
+
+// ── File upload modal ─────────────────────────────────────────────────────────
+
+function openUploadModal() {
+  document.getElementById('upload-file-input').value = '';
+  document.getElementById('upload-print-after').checked = false;
+  document.getElementById('upload-status').classList.add('hidden');
+  const btn = document.getElementById('upload-confirm-btn');
+  btn.disabled = false;
+  btn.textContent = 'Upload';
+  document.getElementById('upload-overlay').classList.remove('hidden');
+  document.getElementById('upload-file-input').focus();
+}
+
+function closeUploadModal() {
+  document.getElementById('upload-overlay').classList.add('hidden');
+}
+
+async function doUpload() {
+  const fileInput = document.getElementById('upload-file-input');
+  if (!fileInput.files.length) { toast('Select a file first', 'error'); return; }
+
+  const file      = fileInput.files[0];
+  const printAfter = document.getElementById('upload-print-after').checked;
+  const storage   = document.getElementById('upload-storage').value;
+  const btn       = document.getElementById('upload-confirm-btn');
+  const statusEl  = document.getElementById('upload-status');
+
+  btn.disabled = true;
+  btn.textContent = 'Uploading…';
+  statusEl.textContent = `Uploading ${file.name}…`;
+  statusEl.classList.remove('hidden');
+
+  const form = new FormData();
+  form.append('file', file);
+  form.append('storage', storage);
+  form.append('print_after_upload', String(printAfter));
+
+  try {
+    const resp = await fetch('/api/printer/upload', { method: 'POST', body: form });
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try { const err = await resp.json(); msg = err.detail || msg; } catch {}
+      throw new Error(msg);
+    }
+    toast(printAfter ? `${file.name} uploaded — print starting` : `${file.name} uploaded`, 'success');
+    closeUploadModal();
+  } catch (e) {
+    toast(`Upload failed: ${e.message}`, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Upload';
+    statusEl.classList.add('hidden');
+  }
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
