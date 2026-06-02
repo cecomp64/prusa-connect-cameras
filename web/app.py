@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2.credentials import Credentials
@@ -162,39 +162,49 @@ def update_recording_config(body: RecordingBody):
 
 
 # ── YouTube OAuth flow ────────────────────────────────────────────────────────
+# Uses the same copy-paste redirect approach as OctoStreamControl:
+# 1. Generate auth URL with redirect_uri=http://localhost:8181 (nothing listens there)
+# 2. User opens the URL, authorizes with Google
+# 3. Browser is redirected to localhost:8181/?code=...&state=... which fails to load
+# 4. User copies that URL from the address bar and pastes it back here
+# 5. We parse the code+state and exchange for credentials
+#
+# This avoids private-IP redirect restrictions and SSH tunnel requirements.
+# Requires "Desktop app" OAuth client type in Google Cloud Console.
 
 _YOUTUBE_SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-# state token → in-progress Flow (single-user, in-memory is fine)
-_pending_flows: dict[str, Flow] = {}
-
-
-@app.get("/api/youtube/auth/redirect-uri")
-def youtube_redirect_uri(request: Request):
-    """Returns the redirect URI the user must register in Google Cloud Console."""
-    return {"redirect_uri": _callback_uri(request)}
+# Google's loopback redirect — nothing needs to listen here
+_LOOPBACK_REDIRECT = "http://localhost:8181"
 
 
 @app.get("/api/youtube/auth/status")
 def youtube_auth_status():
+    import pickle
     cfg = load_config()
     creds_file = cfg.get("youtube", {}).get("credentials_cache", "")
     if not creds_file or not Path(creds_file).exists():
         return {"authorized": False}
     try:
-        creds = Credentials.from_authorized_user_file(creds_file, _YOUTUBE_SCOPES)
+        with open(creds_file, "rb") as f:
+            creds = pickle.load(f)
         if creds.valid:
             return {"authorized": True}
         if creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
-            Path(creds_file).write_text(creds.to_json())
+            with open(creds_file, "wb") as f:
+                pickle.dump(creds, f)
             return {"authorized": True}
     except Exception:
         pass
     return {"authorized": False}
 
 
-@app.get("/api/youtube/auth/start")
-def youtube_auth_start(request: Request):
+@app.post("/api/youtube/auth/start")
+def youtube_auth_start():
+    """Generate and return the Google authorization URL."""
+    import os as _os
+    _os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # allow http loopback
+
     cfg = load_config()
     secrets_file = cfg.get("youtube", {}).get("client_secrets_file", "")
     if not secrets_file or not Path(secrets_file).exists():
@@ -207,70 +217,88 @@ def youtube_auth_start(request: Request):
         flow = Flow.from_client_secrets_file(
             secrets_file,
             scopes=_YOUTUBE_SCOPES,
-            redirect_uri=_callback_uri(request),
+            redirect_uri=_LOOPBACK_REDIRECT,
         )
     except Exception as exc:
         raise HTTPException(400, f"Could not read client_secrets.json: {exc}")
 
     auth_url, state = flow.authorization_url(
         access_type="offline",
-        prompt="consent",          # always request a refresh token
+        prompt="consent",
         include_granted_scopes="true",
     )
-    _pending_flows[state] = flow
-    return RedirectResponse(auth_url)
+
+    # Persist flow state to disk so it survives across requests
+    import json as _json, tempfile as _tmp
+    state_file = Path(_tmp.gettempdir()) / f"prusa_yt_flow_{state}.json"
+    state_file.write_text(_json.dumps({
+        "state": state,
+        "secrets_file": secrets_file,
+        "redirect_uri": _LOOPBACK_REDIRECT,
+    }))
+
+    return {"auth_url": auth_url, "state": state}
 
 
-@app.get("/api/youtube/oauth/callback")
-def youtube_oauth_callback(
-    request: Request,
-    code: Optional[str] = None,
-    state: Optional[str] = None,
-    error: Optional[str] = None,
-):
-    if error:
-        return HTMLResponse(_auth_page(False, f"Authorization denied: {error}"))
-    if not state or state not in _pending_flows:
-        return HTMLResponse(_auth_page(False, "Invalid or expired OAuth state — please try again."))
+class CompleteAuthBody(BaseModel):
+    redirect_url: str
 
-    flow = _pending_flows.pop(state)
+
+@app.post("/api/youtube/auth/complete")
+def youtube_auth_complete(body: CompleteAuthBody):
+    """Exchange the code in the pasted redirect URL for credentials."""
+    import json as _json, os as _os, tempfile as _tmp
+    from urllib.parse import urlparse, parse_qs
+
+    _os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
+    # Parse code + state out of the pasted URL
     try:
+        params = parse_qs(urlparse(body.redirect_url).query)
+        code  = params.get("code",  [None])[0]
+        state = params.get("state", [None])[0]
+        error = params.get("error", [None])[0]
+    except Exception as exc:
+        raise HTTPException(400, f"Could not parse URL: {exc}")
+
+    if error:
+        raise HTTPException(400, f"Authorization denied: {error}")
+    if not code or not state:
+        raise HTTPException(400, "URL is missing code or state — did you copy the full address bar URL?")
+
+    # Load the persisted flow state
+    state_file = Path(_tmp.gettempdir()) / f"prusa_yt_flow_{state}.json"
+    if not state_file.exists():
+        raise HTTPException(400, "Authorization session not found or expired — please start over.")
+
+    flow_data = _json.loads(state_file.read_text())
+    state_file.unlink(missing_ok=True)
+
+    try:
+        flow = Flow.from_client_secrets_file(
+            flow_data["secrets_file"],
+            scopes=_YOUTUBE_SCOPES,
+            redirect_uri=flow_data["redirect_uri"],
+            state=state,
+        )
         flow.fetch_token(code=code)
     except Exception as exc:
-        return HTMLResponse(_auth_page(False, f"Token exchange failed: {exc}"))
+        raise HTTPException(400, f"Token exchange failed: {exc}")
 
     cfg = load_config()
     creds_file = cfg.get("youtube", {}).get(
         "credentials_cache", "/var/lib/prusa-cameras/youtube_creds.json"
     )
     try:
+        import pickle
         dest = Path(creds_file)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(flow.credentials.to_json())
+        with open(dest, "wb") as f:
+            pickle.dump(flow.credentials, f)
     except Exception as exc:
-        return HTMLResponse(_auth_page(False, f"Failed to save credentials: {exc}"))
+        raise HTTPException(500, f"Failed to save credentials: {exc}")
 
-    return HTMLResponse(_auth_page(True, "YouTube authorized successfully. You can close this tab."))
-
-
-def _callback_uri(request: Request) -> str:
-    return str(request.base_url).rstrip("/") + "/api/youtube/oauth/callback"
-
-
-def _auth_page(success: bool, message: str) -> str:
-    icon  = "&#10003;" if success else "&#10007;"
-    color = "#3fb950"  if success else "#f85149"
-    close = "setTimeout(() => window.close(), 2000);" if success else ""
-    return f"""<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>YouTube Auth</title></head>
-<body style="font-family:sans-serif;background:#0d1117;color:#e6edf3;
-             display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
-  <div style="text-align:center;max-width:420px;padding:40px">
-    <div style="font-size:64px;color:{color}">{icon}</div>
-    <p style="margin-top:16px;font-size:15px;line-height:1.5">{message}</p>
-    <script>{close}</script>
-  </div>
-</body></html>"""
+    return {"ok": True}
 
 
 # ── Service status / control ───────────────────────────────────────────────────

@@ -55,6 +55,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (editingName) loadPreviewImage(editingName);
   });
   document.getElementById('yt-auth-refresh-btn').addEventListener('click', loadYouTubeAuthStatus);
+  document.getElementById('yt-auth-start-btn').addEventListener('click', startYouTubeAuth);
+  document.getElementById('yt-auth-complete-btn').addEventListener('click', completeYouTubeAuth);
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
   // Password show/hide (all .toggle-pw buttons)
@@ -321,7 +323,6 @@ async function loadYouTube() {
     f.elements.playlist_id.value         = d.playlist_id || '';
   } catch {}
   loadYouTubeAuthStatus();
-  loadYouTubeRedirectUri();
 }
 
 async function loadYouTubeAuthStatus() {
@@ -336,11 +337,41 @@ async function loadYouTubeAuthStatus() {
   }
 }
 
-async function loadYouTubeRedirectUri() {
+async function startYouTubeAuth() {
+  const btn = document.getElementById('yt-auth-start-btn');
+  btn.disabled = true;
   try {
-    const { redirect_uri } = await api('/api/youtube/auth/redirect-uri');
-    document.getElementById('yt-redirect-uri').textContent = redirect_uri;
-  } catch {}
+    const { auth_url } = await api('/api/youtube/auth/start', { method: 'POST' });
+    document.getElementById('yt-auth-link').href = auth_url;
+    document.getElementById('yt-redirect-paste').value = '';
+    document.getElementById('yt-auth-step2').classList.remove('hidden');
+    // Open in new tab automatically
+    window.open(auth_url, '_blank');
+  } catch (e) {
+    toast(`Could not start auth: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function completeYouTubeAuth() {
+  const redirectUrl = document.getElementById('yt-redirect-paste').value.trim();
+  if (!redirectUrl) {
+    toast('Paste the redirect URL first', 'error');
+    return;
+  }
+  const btn = document.getElementById('yt-auth-complete-btn');
+  btn.disabled = true;
+  try {
+    await api('/api/youtube/auth/complete', { method: 'POST', json: { redirect_url: redirectUrl } });
+    toast('YouTube authorized!', 'success');
+    document.getElementById('yt-auth-step2').classList.add('hidden');
+    loadYouTubeAuthStatus();
+  } catch (e) {
+    toast(`Authorization failed: ${e.message}`, 'error');
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 async function saveYouTube(form) {

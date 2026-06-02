@@ -1,20 +1,16 @@
 """Uploads completed recordings to YouTube via the Data API v3."""
 
-import json
 import logging
+import pickle
 from pathlib import Path
 
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 logger = logging.getLogger(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
-# Science & Technology category
-YT_CATEGORY = "28"
+YT_CATEGORY = "28"  # Science & Technology
 
 
 class YouTubeUploader:
@@ -77,21 +73,27 @@ class YouTubeUploader:
         creds = self._load_creds()
         return build("youtube", "v3", credentials=creds, cache_discovery=False)
 
-    def _load_creds(self) -> Credentials:
-        creds = None
+    def _load_creds(self):
         cache = Path(self._creds_cache)
+        if not cache.exists():
+            raise RuntimeError(
+                f"YouTube credentials not found at {cache}. "
+                "Authorize via Settings → YouTube in the web UI."
+            )
 
-        if cache.exists():
-            creds = Credentials.from_authorized_user_file(str(cache), SCOPES)
+        with open(cache, "rb") as f:
+            creds = pickle.load(f)
 
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
+        if not creds.valid:
+            if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
+                with open(cache, "wb") as f:
+                    pickle.dump(creds, f)
             else:
-                flow = InstalledAppFlow.from_client_secrets_file(self._secrets, SCOPES)
-                creds = flow.run_local_server(port=0)
-
-            cache.write_text(creds.to_json())
+                raise RuntimeError(
+                    "YouTube credentials are invalid. "
+                    "Re-authorize via Settings → YouTube in the web UI."
+                )
 
         return creds
 
