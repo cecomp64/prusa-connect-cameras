@@ -29,25 +29,20 @@
       <!-- ── Dashboard ────────────────────────────────────────────── -->
       <section id="tab-dashboard" class="tab active">
 
-        <!-- Printer status card -->
+        <!-- Printer status card — always visible, notice bar shown when offline -->
         <div class="printer-card">
-          <div id="printer-unconfigured" class="printer-state-panel hidden">
-            <div class="printer-state-icon">&#128736;</div>
-            <p class="printer-state-msg">PrusaLink not configured.</p>
-            <button class="btn btn-primary btn-sm" onclick="switchTab('settings')">Configure in Settings</button>
-          </div>
-          <div id="printer-error" class="printer-state-panel hidden">
-            <div class="printer-state-icon printer-state-icon--error">&#9888;</div>
-            <p id="printer-error-msg" class="printer-state-msg">Printer unreachable</p>
-          </div>
-          <div id="printer-live" class="hidden">
-            <div class="printer-card-header">
-              <div class="printer-name-row">
-                <span id="printer-state-badge" class="printer-badge">UNKNOWN</span>
-                <span id="printer-filename" class="printer-filename"></span>
-              </div>
-              <span id="printer-last-updated" class="printer-timestamp"></span>
+          <div class="printer-card-header">
+            <div class="printer-name-row">
+              <span id="printer-state-badge" class="printer-badge printer-badge--unknown">CHECKING&hellip;</span>
+              <span id="printer-filename" class="printer-filename"></span>
             </div>
+            <span id="printer-last-updated" class="printer-timestamp"></span>
+          </div>
+          <div id="printer-notice" class="printer-notice hidden">
+            <span id="printer-notice-text"></span>
+            <button id="printer-notice-action" class="btn btn-ghost btn-sm hidden" onclick="switchTab('settings')">Configure PrusaLink</button>
+          </div>
+          <div id="printer-stats-wrap" class="printer-stats-wrap printer-offline">
             <div class="printer-stats-row">
               <div class="printer-stat"><span class="printer-stat-label">Nozzle</span><span id="ps-nozzle" class="printer-stat-value">&#8212;</span><span id="ps-nozzle-target" class="printer-stat-target"></span></div>
               <div class="printer-stat"><span class="printer-stat-label">Bed</span><span id="ps-bed" class="printer-stat-value">&#8212;</span><span id="ps-bed-target" class="printer-stat-target"></span></div>

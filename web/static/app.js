@@ -187,36 +187,61 @@ function stopPrinterPoll() {
 }
 
 async function loadPrinterStatus() {
-  const cardUncfg  = document.getElementById('printer-unconfigured');
-  const cardErr    = document.getElementById('printer-error');
-  const cardErrMsg = document.getElementById('printer-error-msg');
-  const cardLive   = document.getElementById('printer-live');
+  const notice       = document.getElementById('printer-notice');
+  const noticeText   = document.getElementById('printer-notice-text');
+  const noticeAction = document.getElementById('printer-notice-action');
+  const statsWrap    = document.getElementById('printer-stats-wrap');
+  const badge        = document.getElementById('printer-state-badge');
 
-  function showPanel(which) {
-    [cardUncfg, cardErr, cardLive].forEach(el => el.classList.add('hidden'));
-    which.classList.remove('hidden');
+  function setNotice(text, showAction = false) {
+    noticeText.textContent = text;
+    notice.classList.remove('hidden');
+    noticeAction.classList.toggle('hidden', !showAction);
   }
 
   let data;
   try {
     data = await api('/api/printer/status');
   } catch (e) {
-    if (lastPrinterData) { renderPrinterLive(lastPrinterData, true); showPanel(cardLive); }
-    else { cardErrMsg.textContent = `Could not reach server: ${e.message}`; showPanel(cardErr); }
+    if (lastPrinterData) {
+      renderPrinterLive(lastPrinterData, true);
+      setNotice('Lost connection to server — showing last known data');
+    } else {
+      badge.textContent  = 'OFFLINE';
+      badge.className    = 'printer-badge printer-badge--unknown';
+      statsWrap.classList.add('printer-offline');
+      setNotice(`Could not reach server: ${e.message}`);
+    }
     return;
   }
 
-  if (!data.configured) { showPanel(cardUncfg); return; }
+  if (!data.configured) {
+    badge.textContent = 'OFFLINE';
+    badge.className   = 'printer-badge printer-badge--unknown';
+    document.getElementById('printer-filename').textContent      = '';
+    document.getElementById('printer-last-updated').textContent  = '';
+    statsWrap.classList.add('printer-offline');
+    setNotice('PrusaLink not configured — printer stats unavailable.', true);
+    return;
+  }
 
   if (!data.reachable) {
-    if (lastPrinterData) { renderPrinterLive(lastPrinterData, true); showPanel(cardLive); }
-    else { cardErrMsg.textContent = data.error ? `Printer unreachable: ${data.error}` : 'Printer unreachable'; showPanel(cardErr); }
+    if (lastPrinterData) {
+      renderPrinterLive(lastPrinterData, true);
+      setNotice(`Printer unreachable — showing last known data${data.error ? ': ' + data.error : ''}`);
+    } else {
+      badge.textContent = 'OFFLINE';
+      badge.className   = 'printer-badge printer-badge--unknown';
+      statsWrap.classList.add('printer-offline');
+      setNotice(data.error ? `Printer unreachable: ${data.error}` : 'Printer unreachable — check connection');
+    }
     return;
   }
 
+  notice.classList.add('hidden');
+  statsWrap.classList.remove('printer-offline');
   lastPrinterData = data;
   renderPrinterLive(data, false);
-  showPanel(cardLive);
 }
 
 function renderPrinterLive(data, stale) {
@@ -229,9 +254,8 @@ function renderPrinterLive(data, stale) {
   badge.textContent = stale ? `${state} (stale)` : state;
   badge.className = 'printer-badge ' + printerStateBadgeClass(state);
 
-  document.getElementById('printer-filename').textContent = job?.display_name ?? '';
-  document.getElementById('printer-last-updated').textContent =
-    stale ? 'Last known data' : `Updated ${new Date().toLocaleTimeString()}`;
+  document.getElementById('printer-filename').textContent     = job?.display_name ?? '';
+  document.getElementById('printer-last-updated').textContent = stale ? 'Last known data' : `Updated ${new Date().toLocaleTimeString()}`;
 
   const fmt1 = v => (v != null ? `${v.toFixed(1)}°C` : '—');
   document.getElementById('ps-nozzle').textContent        = fmt1(p.temp_nozzle);
