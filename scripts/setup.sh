@@ -22,12 +22,28 @@ sudo rsync -a --delete \
     --exclude='.git' \
     --exclude='__pycache__' \
     --exclude='*.pyc' \
+    --exclude='venv' \
     "$REPO_DIR/" "$INSTALL_DIR/"
 sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
 echo "==> Installing Python dependencies"
-sudo -u "$SERVICE_USER" python3 -m venv "$INSTALL_DIR/venv"
-sudo -u "$SERVICE_USER" "$INSTALL_DIR/venv/bin/pip" install --quiet -r "$INSTALL_DIR/requirements.txt"
+VENV="$INSTALL_DIR/venv"
+REQS="$INSTALL_DIR/requirements.txt"
+REQS_STAMP="$INSTALL_DIR/.requirements.stamp"
+
+# Create the venv once if it doesn't exist yet
+if [ ! -x "$VENV/bin/pip" ]; then
+    sudo -u "$SERVICE_USER" python3 -m venv "$VENV"
+fi
+
+# Only reinstall if requirements.txt has changed since last install
+if ! diff -q "$REQS" "$REQS_STAMP" &>/dev/null; then
+    echo "    requirements.txt changed, running pip install..."
+    sudo -u "$SERVICE_USER" "$VENV/bin/pip" install --quiet -r "$REQS"
+    sudo cp "$REQS" "$REQS_STAMP"
+else
+    echo "    requirements.txt unchanged, skipping pip install"
+fi
 
 echo "==> Setting up config"
 if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
