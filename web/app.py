@@ -222,29 +222,18 @@ def youtube_auth_start():
     except Exception as exc:
         raise HTTPException(400, f"Could not read client_secrets.json: {exc}")
 
-    # Build PKCE pair — Google requires this for Desktop app clients
-    import base64, hashlib, secrets as _secrets
-    code_verifier  = _secrets.token_urlsafe(96)
-    code_challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(code_verifier.encode()).digest()
-    ).rstrip(b"=").decode()
-
     auth_url, state = flow.authorization_url(
         access_type="offline",
         prompt="consent",
         include_granted_scopes="true",
-        code_challenge=code_challenge,
-        code_challenge_method="S256",
     )
 
-    # Persist state + verifier to disk so they survive across requests
     import json as _json, tempfile as _tmp
     state_file = Path(_tmp.gettempdir()) / f"prusa_yt_flow_{state}.json"
     state_file.write_text(_json.dumps({
         "state": state,
         "secrets_file": secrets_file,
         "redirect_uri": _LOOPBACK_REDIRECT,
-        "code_verifier": code_verifier,
     }))
 
     return {"auth_url": auth_url, "state": state}
@@ -303,7 +292,6 @@ def youtube_auth_complete(body: CompleteAuthBody):
                 "client_secret": client["client_secret"],
                 "redirect_uri":  _LOOPBACK_REDIRECT,
                 "grant_type":    "authorization_code",
-                "code_verifier": flow_data["code_verifier"],
             },
         )
         resp.raise_for_status()
