@@ -284,16 +284,46 @@ def youtube_auth_complete(body: CompleteAuthBody):
     flow_data = _json.loads(state_file.read_text())
     state_file.unlink(missing_ok=True)
 
+    # Read client config directly from the secrets file
+    with open(flow_data["secrets_file"]) as f:
+        client_json = _json.load(f)
+    client = client_json.get("installed") or client_json.get("web")
+    if not client:
+        raise HTTPException(400, "Unrecognised client_secrets.json format")
+
+    # Make the token exchange directly so code_verifier is guaranteed in the POST
+    # body — google_auth_oauthlib silently drops it when the flow is reconstructed.
+    import requests as _req
     try:
-        flow = Flow.from_client_secrets_file(
-            flow_data["secrets_file"],
-            scopes=_YOUTUBE_SCOPES,
-            redirect_uri=flow_data["redirect_uri"],
-            state=state,
+        resp = _req.post(
+            client["token_uri"],
+            data={
+                "code":          code,
+                "client_id":     client["client_id"],
+                "client_secret": client["client_secret"],
+                "redirect_uri":  _LOOPBACK_REDIRECT,
+                "grant_type":    "authorization_code",
+                "code_verifier": flow_data["code_verifier"],
+            },
         )
-        flow.fetch_token(code=code, code_verifier=flow_data.get("code_verifier"))
+        resp.raise_for_status()
+        token_data = resp.json()
     except Exception as exc:
         raise HTTPException(400, f"Token exchange failed: {exc}")
+
+    if "error" in token_data:
+        raise HTTPException(400, f"{token_data['error']}: {token_data.get('error_description', '')}")
+
+    # Build a Credentials object from the raw token response
+    from google.oauth2.credentials import Credentials
+    creds = Credentials(
+        token=token_data["access_token"],
+        refresh_token=token_data.get("refresh_token"),
+        token_uri=client["token_uri"],
+        client_id=client["client_id"],
+        client_secret=client["client_secret"],
+        scopes=_YOUTUBE_SCOPES,
+    )
 
     cfg = load_config()
     creds_file = cfg.get("youtube", {}).get(
@@ -304,7 +334,7 @@ def youtube_auth_complete(body: CompleteAuthBody):
         dest = Path(creds_file)
         dest.parent.mkdir(parents=True, exist_ok=True)
         with open(dest, "wb") as f:
-            pickle.dump(flow.credentials, f)
+            pickle.dump(creds, f)
     except Exception as exc:
         raise HTTPException(500, f"Failed to save credentials: {exc}")
 
