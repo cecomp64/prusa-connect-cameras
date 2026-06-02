@@ -1,0 +1,22 @@
+[Unit]
+Description=Prusa Camera Manager Web UI
+Documentation=https://github.com/csvensson/prusa-connect-cameras
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/prusa-cameras/web
+Environment=CONFIG=/etc/prusa-cameras/config.yaml
+Environment=PORT=8080
+ExecStart=/opt/prusa-cameras/venv/bin/python app.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prusa-cameras-web
+
+[Install]
+WantedBy=multi-user.target

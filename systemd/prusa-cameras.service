@@ -1,0 +1,24 @@
+[Unit]
+Description=Prusa Connect Camera Service
+Documentation=https://github.com/csvensson/prusa-connect-cameras
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+WorkingDirectory=/opt/prusa-cameras/src
+Environment=CONFIG=/etc/prusa-cameras/config.yaml
+Environment=LOG_LEVEL=INFO
+ExecStart=/opt/prusa-cameras/venv/bin/python main.py
+Restart=on-failure
+RestartSec=15
+# Give ffmpeg recordings time to flush on stop
+TimeoutStopSec=45
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=prusa-cameras
+
+[Install]
+WantedBy=multi-user.target

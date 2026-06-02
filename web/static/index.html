@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prusa Cameras</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+
+    <header>
+      <span class="logo">Prusa Cameras</span>
+      <div class="header-right">
+        <span id="svc-badge" class="badge badge-unknown">Service</span>
+        <button id="restart-btn" class="btn btn-ghost btn-sm">&#8635; Restart</button>
+      </div>
+    </header>
+
+    <nav>
+      <button class="tab-btn active" data-tab="streams">Streams</button>
+      <button class="tab-btn" data-tab="settings">Settings</button>
+      <button class="tab-btn" data-tab="recordings">Recordings</button>
+      <button class="tab-btn" data-tab="logs">Logs</button>
+    </nav>
+
+    <main>
+
+      <!-- ── Streams ─────────────────────────────────────────────── -->
+      <section id="tab-streams" class="tab active">
+        <div id="camera-grid" class="camera-grid"></div>
+        <div id="no-cameras" class="empty-state hidden">
+          <div class="empty-icon">&#128247;</div>
+          <p>No cameras configured yet.</p>
+          <button class="btn btn-primary" onclick="switchTab('settings')">Configure cameras</button>
+        </div>
+      </section>
+
+      <!-- ── Settings ───────────────────────────────────────────── -->
+      <section id="tab-settings" class="tab">
+        <div class="settings-grid">
+
+          <div class="card">
+            <div class="card-header">
+              <h2>Cameras</h2>
+              <button id="add-cam-btn" class="btn btn-primary btn-sm">+ Add camera</button>
+            </div>
+            <div id="cam-list" class="cam-list"></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h2>PrusaLink</h2></div>
+            <form id="prusalink-form" class="form-body">
+              <label>
+                <span>Printer URL</span>
+                <input name="host" type="url" placeholder="http://192.168.1.100">
+              </label>
+              <label>
+                <span>API Key</span>
+                <div class="input-row">
+                  <input name="api_key" type="password" autocomplete="off" placeholder="found in printer settings">
+                  <button type="button" class="btn btn-ghost btn-sm toggle-pw">Show</button>
+                </div>
+              </label>
+              <label>
+                <span>Poll interval (seconds)</span>
+                <input name="poll_interval" type="number" min="5" max="120" value="15">
+              </label>
+              <button type="submit" class="btn btn-primary">Save PrusaLink</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h2>YouTube</h2></div>
+            <form id="youtube-form" class="form-body">
+              <label class="label-inline">
+                <input name="enabled" type="checkbox">
+                <span>Enable uploads after print ends</span>
+              </label>
+              <label>
+                <span>Privacy</span>
+                <select name="privacy">
+                  <option value="unlisted">Unlisted</option>
+                  <option value="private">Private</option>
+                  <option value="public">Public</option>
+                </select>
+              </label>
+              <label>
+                <span>Client secrets file</span>
+                <input name="client_secrets_file" type="text" placeholder="/etc/prusa-cameras/client_secrets.json">
+              </label>
+              <label>
+                <span>Credentials cache</span>
+                <input name="credentials_cache" type="text" placeholder="/var/lib/prusa-cameras/youtube_creds.json">
+              </label>
+              <label>
+                <span>Playlist ID <em class="muted">(optional)</em></span>
+                <input name="playlist_id" type="text" placeholder="">
+              </label>
+              <button type="submit" class="btn btn-primary">Save YouTube</button>
+            </form>
+          </div>
+
+          <div class="card">
+            <div class="card-header"><h2>Recordings</h2></div>
+            <form id="recording-form" class="form-body">
+              <label>
+                <span>Output directory</span>
+                <input name="output_dir" type="text" placeholder="/var/lib/prusa-cameras/recordings">
+              </label>
+              <label>
+                <span>Retention (days, 0 = keep forever)</span>
+                <input name="retention_days" type="number" min="0" value="7">
+              </label>
+              <button type="submit" class="btn btn-primary">Save</button>
+            </form>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ── Recordings ──────────────────────────────────────────── -->
+      <section id="tab-recordings" class="tab">
+        <div class="section-toolbar">
+          <button class="btn btn-ghost btn-sm" id="refresh-recs-btn">&#8635; Refresh</button>
+        </div>
+        <div id="rec-list" class="rec-list"></div>
+        <div id="no-recs" class="empty-state hidden">
+          <div class="empty-icon">&#127909;</div>
+          <p>No recordings yet. Recordings are created automatically when a print starts.</p>
+        </div>
+      </section>
+
+      <!-- ── Logs ────────────────────────────────────────────────── -->
+      <section id="tab-logs" class="tab">
+        <div class="section-toolbar">
+          <span id="log-badge" class="badge badge-unknown">Connecting&hellip;</span>
+          <button class="btn btn-ghost btn-sm" id="clear-logs-btn">Clear</button>
+        </div>
+        <pre id="log-output"></pre>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ── Camera add/edit modal ──────────────────────────────────────────────── -->
+  <div id="modal-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-title">Add Camera</h3>
+        <button class="btn btn-ghost btn-icon" id="modal-close" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <form id="camera-form" class="form-body">
+          <label>
+            <span>Name</span>
+            <input name="name" type="text" required placeholder="Bed Camera">
+          </label>
+          <label>
+            <span>RTSP URL</span>
+            <input name="rtsp_url" type="text" required placeholder="rtsp://localhost:8554/mystream">
+          </label>
+          <label>
+            <span>Prusa Connect Token</span>
+            <div class="input-row">
+              <input name="token" type="password" required autocomplete="off" placeholder="20-char token from Prusa Connect">
+              <button type="button" class="btn btn-ghost btn-sm toggle-pw">Show</button>
+            </div>
+          </label>
+          <label>
+            <span>Fingerprint <em class="muted">(stable camera ID, 16+ chars)</em></span>
+            <div class="input-row">
+              <input name="fingerprint" type="text" placeholder="auto-generated if blank">
+              <button type="button" class="btn btn-ghost btn-sm" id="gen-fp-btn">Generate</button>
+            </div>
+          </label>
+          <label>
+            <span>Snapshot interval (seconds)</span>
+            <input name="snapshot_interval" type="number" min="5" max="300" value="10">
+          </label>
+        </form>
+
+        <div id="cam-preview" class="cam-preview hidden">
+          <div class="cam-preview-header">
+            <span class="muted" style="font-size:12px">SNAPSHOT PREVIEW</span>
+            <button class="btn btn-ghost btn-sm" id="preview-refresh-btn">&#8635; Refresh</button>
+          </div>
+          <div class="cam-preview-img-wrap">
+            <img id="preview-img" alt="Camera snapshot preview">
+            <div id="preview-err" class="preview-err hidden">&#128247; Could not load snapshot</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+        <button class="btn btn-primary" id="modal-save">Save camera</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Toast ──────────────────────────────────────────────────────────────── -->
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

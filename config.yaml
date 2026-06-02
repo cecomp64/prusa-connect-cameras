@@ -1,0 +1,36 @@
+cameras:
+  - name: "Bed Camera"
+    rtsp_url: "rtsp://localhost:8554/mystream"
+    # Get this token from Prusa Connect dashboard → your printer → Camera tab → Add new other camera
+    token: "REPLACE_WITH_PRUSA_CONNECT_TOKEN"
+    # Any stable 16+ char identifier for this camera; run `python3 scripts/gen_fingerprint.py` to generate
+    fingerprint: "REPLACE_WITH_STABLE_UUID"
+    snapshot_interval: 10  # seconds between snapshots
+
+  - name: "USB Camera"
+    rtsp_url: "rtsp://localhost:8554/usbcam"
+    token: "REPLACE_WITH_PRUSA_CONNECT_TOKEN_2"
+    fingerprint: "REPLACE_WITH_STABLE_UUID_2"
+    snapshot_interval: 10
+
+prusalink:
+  # Local printer IP — find it in printer menu → Network, or your router's DHCP list
+  host: "http://192.168.1.100"
+  # PrusaLink API key — find it in printer menu → Settings → Network → PrusaLink API key
+  api_key: "REPLACE_WITH_PRUSALINK_API_KEY"
+  poll_interval: 15  # seconds between state polls
+
+recording:
+  output_dir: "/var/lib/prusa-cameras/recordings"
+  # Keep recordings this many days before auto-delete (0 = keep forever)
+  retention_days: 7
+
+youtube:
+  enabled: false
+  # OAuth2 client secrets — see scripts/auth_youtube.py for setup instructions
+  client_secrets_file: "/etc/prusa-cameras/client_secrets.json"
+  credentials_cache: "/var/lib/prusa-cameras/youtube_creds.json"
+  # unlisted, public, or private
+  privacy: "unlisted"
+  # Playlist ID to add uploads to (optional, leave empty to skip)
+  playlist_id: ""
