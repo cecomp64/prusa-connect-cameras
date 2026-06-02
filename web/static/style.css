@@ -640,8 +640,8 @@ em.muted { font-style: normal; }
 .printer-badge--unknown  { background: rgba(125,133,144,.12); color: var(--text-muted); border: 1px solid var(--border); }
 
 .printer-stats-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
   border-bottom: 1px solid var(--border);
 }
 
@@ -649,7 +649,6 @@ em.muted { font-style: normal; }
   display: flex;
   flex-direction: column;
   padding: 10px 16px;
-  min-width: 90px;
   border-right: 1px solid var(--border);
   gap: 2px;
 }
@@ -728,6 +727,18 @@ em.muted { font-style: normal; }
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
+
+/* Stats break into 4+3 grid at medium widths */
+@media (max-width: 700px) {
+  .printer-stats-row {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  /* remove right border from last item in each 4-column row */
+  .printer-stat:nth-child(4n) { border-right: none; }
+  /* row separator above items in the second row */
+  .printer-stat:nth-child(n+5) { border-top: 1px solid var(--border); }
+}
+
 @media (max-width: 640px) {
   .camera-grid { grid-template-columns: 1fr; }
   .settings-grid { grid-template-columns: 1fr; }
@@ -735,7 +746,7 @@ em.muted { font-style: normal; }
   .tab { padding: 12px; }
   nav { padding: 0 8px; }
   .tab-btn { padding: 10px 12px; font-size: 12px; }
-  .printer-stat       { min-width: 80px; padding: 8px 12px; }
+  .printer-stat       { padding: 8px 10px; }
   .printer-stat-value { font-size: 13px; }
   .printer-filename   { max-width: 180px; }
 }
