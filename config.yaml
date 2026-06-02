@@ -1,5 +1,7 @@
 cameras:
   - name: "Bed Camera"
+    # mediamtx WebRTC player page — shown in the Streams tab of the web UI
+    webrtc_url: "http://REPLACE_WITH_PI_IP:8889/mystream"
     rtsp_url: "rtsp://localhost:8554/mystream"
     # Get this token from Prusa Connect dashboard → your printer → Camera tab → Add new other camera
     token: "REPLACE_WITH_PRUSA_CONNECT_TOKEN"
@@ -8,6 +10,7 @@ cameras:
     snapshot_interval: 10  # seconds between snapshots
 
   - name: "USB Camera"
+    webrtc_url: "http://REPLACE_WITH_PI_IP:8889/usbcam"
     rtsp_url: "rtsp://localhost:8554/usbcam"
     token: "REPLACE_WITH_PRUSA_CONNECT_TOKEN_2"
     fingerprint: "REPLACE_WITH_STABLE_UUID_2"

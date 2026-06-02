@@ -140,59 +140,29 @@ function buildCameraCard(cam) {
   const card = document.createElement('div');
   card.className = 'camera-card';
 
-  const streamUrl = `/api/stream/${encodeURIComponent(cam.name)}/mjpeg`;
+  const streamContent = cam.webrtc_url
+    ? `<iframe src="${esc(cam.webrtc_url)}" frameborder="0" allow="autoplay" allowfullscreen></iframe>`
+    : `<div class="stream-no-url">
+         <span>&#128247;</span>
+         <span>No WebRTC URL set</span>
+         <button class="btn btn-ghost btn-sm" data-action="edit">Configure</button>
+       </div>`;
 
   card.innerHTML = `
-    <div class="stream-wrap loading">
-      <img src="${esc(streamUrl)}" alt="${esc(cam.name)}">
-      <div class="stream-offline">
-        <span class="stream-offline-icon">&#128247;</span>
-        <span>Stream unavailable</span>
-        <button class="btn btn-ghost btn-sm" data-action="retry">&#8635; Retry</button>
-      </div>
-    </div>
+    <div class="stream-wrap">${streamContent}</div>
     <div class="cam-bar">
       <span class="cam-name">${esc(cam.name)}</span>
       <div class="cam-actions">
-        <button class="btn btn-ghost btn-sm btn-icon" title="Reload stream" data-action="retry">&#8635;</button>
         <button class="btn btn-ghost btn-sm" data-action="edit">Edit</button>
       </div>
     </div>
   `;
 
-  const img     = card.querySelector('img');
-  const offline = card.querySelector('.stream-offline');
-  const wrap    = card.querySelector('.stream-wrap');
-
-  img.addEventListener('load', () => {
-    wrap.classList.remove('loading');
-    offline.classList.remove('visible');
-    img.style.display = '';
-  });
-  img.addEventListener('error', () => {
-    wrap.classList.remove('loading');
-    offline.classList.add('visible');
-    img.style.display = 'none';
-  });
-
   card.addEventListener('click', e => {
-    const btn = e.target.closest('[data-action]');
-    if (!btn) return;
-    if (btn.dataset.action === 'retry') retryStream(card, cam.name);
-    if (btn.dataset.action === 'edit')  openModal(cam);
+    if (e.target.closest('[data-action="edit"]')) openModal(cam);
   });
 
   return card;
-}
-
-function retryStream(card, name) {
-  const img     = card.querySelector('img');
-  const offline = card.querySelector('.stream-offline');
-  const wrap    = card.querySelector('.stream-wrap');
-  wrap.classList.add('loading');
-  offline.classList.remove('visible');
-  img.style.display = '';
-  img.src = `/api/stream/${encodeURIComponent(name)}/mjpeg?t=${Date.now()}`;
 }
 
 // ── Camera list (settings) ────────────────────────────────────────────────────
@@ -236,6 +206,7 @@ function openModal(cam) {
 
   if (cam) {
     form.elements.name.value              = cam.name;
+    form.elements.webrtc_url.value        = cam.webrtc_url || '';
     form.elements.rtsp_url.value          = cam.rtsp_url;
     form.elements.token.value             = cam.token || '';
     form.elements.fingerprint.value       = cam.fingerprint || '';
@@ -269,6 +240,7 @@ async function saveCamera() {
   const form = document.getElementById('camera-form');
   const body = {
     name:              form.elements.name.value.trim(),
+    webrtc_url:        form.elements.webrtc_url.value.trim(),
     rtsp_url:          form.elements.rtsp_url.value.trim(),
     token:             form.elements.token.value.trim(),
     fingerprint:       form.elements.fingerprint.value.trim(),

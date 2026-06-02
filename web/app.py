@@ -51,6 +51,7 @@ class CameraBody(BaseModel):
     rtsp_url: str
     token: str
     fingerprint: str = ""
+    webrtc_url: str = ""
     snapshot_interval: int = 10
 
 
@@ -323,76 +324,6 @@ async def get_snapshot(camera_name: str):
         content=jpeg,
         media_type="image/jpeg",
         headers={"Cache-Control": "no-store"},
-    )
-
-
-@app.get("/api/stream/{camera_name}/mjpeg")
-async def stream_mjpeg(camera_name: str):
-    cfg = load_config()
-    cam = _find_cam(cfg, camera_name)
-    if not cam:
-        raise HTTPException(404, "Camera not found")
-
-    # Use image2pipe so we own the multipart framing completely, rather than
-    # relying on ffmpeg's mpjpeg muxer boundary string (varies by build).
-    # We scan the raw output for JPEG SOI (FFD8) / EOI (FFD9) markers and
-    # wrap each complete frame ourselves.
-    _BOUNDARY  = b"--frame"
-    _SOI       = b"\xff\xd8"
-    _EOI       = b"\xff\xd9"
-
-    async def generate():
-        proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-loglevel", "quiet",
-            "-rtsp_transport", "tcp",
-            "-i", cam["rtsp_url"],
-            "-vf", "fps=5",
-            "-f", "image2pipe", "-vcodec", "mjpeg",
-            "-q:v", "10",
-            "-",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        buf = bytearray()
-        try:
-            while True:
-                chunk = await asyncio.wait_for(proc.stdout.read(65536), timeout=15)
-                if not chunk:
-                    break
-                buf.extend(chunk)
-
-                # Emit every complete JPEG found in the accumulated buffer
-                while True:
-                    start = buf.find(_SOI)
-                    if start == -1:
-                        buf.clear()
-                        break
-                    end = buf.find(_EOI, start + 2)
-                    if end == -1:
-                        # Incomplete frame — discard anything before SOI and wait
-                        del buf[:start]
-                        break
-                    jpeg = bytes(buf[start : end + 2])
-                    del buf[: end + 2]
-                    yield (
-                        _BOUNDARY + b"\r\n"
-                        b"Content-Type: image/jpeg\r\n"
-                        + f"Content-Length: {len(jpeg)}\r\n\r\n".encode()
-                        + jpeg + b"\r\n"
-                    )
-        except (asyncio.TimeoutError, asyncio.CancelledError):
-            pass
-        finally:
-            try:
-                proc.terminate()
-                await asyncio.wait_for(proc.wait(), timeout=5)
-            except Exception:
-                proc.kill()
-
-    return StreamingResponse(
-        generate(),
-        media_type="multipart/x-mixed-replace;boundary=frame",
-        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
     )
 
 

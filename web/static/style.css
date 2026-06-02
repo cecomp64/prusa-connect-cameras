@@ -199,37 +199,25 @@ main {
   overflow: hidden;
 }
 
-.stream-wrap img {
+.stream-wrap iframe {
   width: 100%;
   height: 100%;
-  object-fit: contain;
   display: block;
+  border: none;
 }
 
-/* Offline overlay */
-.stream-offline {
-  position: absolute;
-  inset: 0;
-  display: none;
+/* Placeholder shown when no WebRTC URL is configured */
+.stream-no-url {
+  display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
+  height: 100%;
   color: var(--text-muted);
-  background: rgba(0,0,0,.6);
+  font-size: 13px;
 }
-.stream-offline.visible { display: flex; }
-.stream-offline-icon { font-size: 36px; opacity: .5; }
-
-/* Loading pulse on a stream that hasn't loaded yet */
-.stream-wrap.loading::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.04) 50%, transparent 100%);
-  animation: shimmer 1.6s infinite;
-}
-@keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.stream-no-url span:first-child { font-size: 32px; opacity: .4; }
 
 .cam-bar {
   display: flex;

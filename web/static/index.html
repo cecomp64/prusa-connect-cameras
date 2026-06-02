@@ -176,7 +176,11 @@
             <input name="name" type="text" required placeholder="Bed Camera">
           </label>
           <label>
-            <span>RTSP URL</span>
+            <span>WebRTC URL <em class="muted">(mediamtx stream page, shown in Streams tab)</em></span>
+            <input name="webrtc_url" type="url" placeholder="http://192.168.1.100:8889/mystream">
+          </label>
+          <label>
+            <span>RTSP URL <em class="muted">(used for recording and Prusa Connect snapshots)</em></span>
             <input name="rtsp_url" type="text" required placeholder="rtsp://localhost:8554/mystream">
           </label>
           <label>
