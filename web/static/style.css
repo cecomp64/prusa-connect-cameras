@@ -522,6 +522,144 @@ em.muted { font-style: normal; }
 /* ── Utility ─────────────────────────────────────────────────────────────────── */
 .hidden { display: none !important; }
 
+/* ── Printer status card ─────────────────────────────────────────────────────── */
+.printer-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.printer-state-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px 20px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.printer-state-icon        { font-size: 36px; opacity: .5; }
+.printer-state-icon--error { color: var(--yellow); opacity: 1; }
+.printer-state-msg         { font-size: 13px; }
+
+.printer-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.printer-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.printer-filename {
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 400px;
+}
+
+.printer-timestamp {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.printer-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.printer-badge--printing { background: rgba(63,185,80,.18);   color: var(--green);      border: 1px solid rgba(63,185,80,.35); }
+.printer-badge--paused   { background: rgba(210,153,34,.18);  color: var(--yellow);     border: 1px solid rgba(210,153,34,.35); }
+.printer-badge--idle     { background: rgba(125,133,144,.12); color: var(--text-muted); border: 1px solid rgba(125,133,144,.25); }
+.printer-badge--finished { background: rgba(63,185,80,.12);   color: var(--green);      border: 1px solid rgba(63,185,80,.2); }
+.printer-badge--error    { background: rgba(248,81,73,.18);   color: var(--red);        border: 1px solid rgba(248,81,73,.35); }
+.printer-badge--unknown  { background: rgba(125,133,144,.12); color: var(--text-muted); border: 1px solid var(--border); }
+
+.printer-stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+}
+
+.printer-stat {
+  display: flex;
+  flex-direction: column;
+  padding: 10px 16px;
+  min-width: 90px;
+  border-right: 1px solid var(--border);
+  gap: 2px;
+}
+.printer-stat:last-child { border-right: none; }
+
+.printer-stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-muted);
+}
+
+.printer-stat-value {
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.printer-stat-target {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.printer-job-panel { padding: 12px 16px; }
+
+.printer-progress-bar-wrap {
+  height: 6px;
+  background: var(--surface-3);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.printer-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width .5s ease;
+}
+
+.printer-job-stats {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.printer-job-pct  { font-size: 15px; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.printer-job-time { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   .camera-grid { grid-template-columns: 1fr; }
@@ -530,4 +668,7 @@ em.muted { font-style: normal; }
   .tab { padding: 12px; }
   nav { padding: 0 8px; }
   .tab-btn { padding: 10px 12px; font-size: 12px; }
+  .printer-stat       { min-width: 80px; padding: 8px 12px; }
+  .printer-stat-value { font-size: 13px; }
+  .printer-filename   { max-width: 180px; }
 }

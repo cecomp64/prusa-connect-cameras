@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
+import requests
 import yaml
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
@@ -132,6 +133,56 @@ def update_prusalink(body: PrusaLinkBody):
     cfg["prusalink"] = body.model_dump()
     save_config(cfg)
     return cfg["prusalink"]
+
+
+@app.get("/api/printer/status")
+def get_printer_status():
+    cfg = load_config()
+    pl  = cfg.get("prusalink", {})
+
+    if not pl.get("host") or not pl.get("api_key"):
+        return {"configured": False}
+
+    host    = pl["host"].rstrip("/")
+    api_key = pl["api_key"]
+
+    try:
+        resp = requests.get(
+            f"{host}/api/v1/status",
+            headers={"X-Api-Key": api_key},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as exc:
+        return {"configured": True, "reachable": False, "error": str(exc), "printer": None, "job": None}
+
+    printer = data.get("printer") or {}
+    job     = data.get("job") or None
+
+    return {
+        "configured": True,
+        "reachable":  True,
+        "error":      None,
+        "printer": {
+            "state":          printer.get("state", "UNKNOWN"),
+            "temp_nozzle":    printer.get("temp_nozzle"),
+            "target_nozzle":  printer.get("target_nozzle"),
+            "temp_bed":       printer.get("temp_bed"),
+            "target_bed":     printer.get("target_bed"),
+            "axis_z":         printer.get("axis_z"),
+            "flow":           printer.get("flow"),
+            "speed":          printer.get("speed"),
+            "fan_hotend":     printer.get("fan_hotend"),
+            "fan_print":      printer.get("fan_print"),
+        },
+        "job": {
+            "progress":        job.get("progress"),
+            "time_remaining":  job.get("time_remaining"),
+            "time_printing":   job.get("time_printing"),
+            "display_name":    job.get("display_name"),
+        } if job else None,
+    }
 
 
 @app.get("/api/youtube")

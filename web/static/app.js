@@ -5,6 +5,8 @@ let cameras = [];       // latest camera list from the API
 let editingName = null; // camera name being edited in modal, null when adding
 let logWs = null;
 let toastTimer = null;
+let printerPollTimer = null;
+let lastPrinterData  = null;
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -73,7 +75,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial load
   refreshServiceStatus();
   setInterval(refreshServiceStatus, 30_000);
-  loadCameraGrid();
+  loadDashboard();
+  startPrinterPoll();
 });
 
 // ── Tab routing ───────────────────────────────────────────────────────────────
@@ -83,7 +86,8 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t =>
     t.classList.toggle('active', t.id === `tab-${name}`));
 
-  if (name === 'streams')    loadCameraGrid();
+  if (name === 'dashboard') { loadDashboard(); startPrinterPoll(); }
+  else                        stopPrinterPoll();
   if (name === 'settings')   { loadCameraList(); loadPrusaLink(); loadYouTube(); loadRecordingConfig(); }
   if (name === 'recordings') loadRecordings();
   if (name === 'logs')       startLogStream();
@@ -165,6 +169,114 @@ function buildCameraCard(cam) {
   });
 
   return card;
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+async function loadDashboard() {
+  loadCameraGrid();
+  await loadPrinterStatus();
+}
+
+function startPrinterPoll() {
+  stopPrinterPoll();
+  printerPollTimer = setInterval(loadPrinterStatus, 10_000);
+}
+
+function stopPrinterPoll() {
+  if (printerPollTimer !== null) { clearInterval(printerPollTimer); printerPollTimer = null; }
+}
+
+async function loadPrinterStatus() {
+  const cardUncfg  = document.getElementById('printer-unconfigured');
+  const cardErr    = document.getElementById('printer-error');
+  const cardErrMsg = document.getElementById('printer-error-msg');
+  const cardLive   = document.getElementById('printer-live');
+
+  function showPanel(which) {
+    [cardUncfg, cardErr, cardLive].forEach(el => el.classList.add('hidden'));
+    which.classList.remove('hidden');
+  }
+
+  let data;
+  try {
+    data = await api('/api/printer/status');
+  } catch (e) {
+    if (lastPrinterData) { renderPrinterLive(lastPrinterData, true); showPanel(cardLive); }
+    else { cardErrMsg.textContent = `Could not reach server: ${e.message}`; showPanel(cardErr); }
+    return;
+  }
+
+  if (!data.configured) { showPanel(cardUncfg); return; }
+
+  if (!data.reachable) {
+    if (lastPrinterData) { renderPrinterLive(lastPrinterData, true); showPanel(cardLive); }
+    else { cardErrMsg.textContent = data.error ? `Printer unreachable: ${data.error}` : 'Printer unreachable'; showPanel(cardErr); }
+    return;
+  }
+
+  lastPrinterData = data;
+  renderPrinterLive(data, false);
+  showPanel(cardLive);
+}
+
+function renderPrinterLive(data, stale) {
+  const p   = data.printer || {};
+  const job = data.job;
+  const state    = (p.state || 'UNKNOWN').toUpperCase();
+  const isActive = state === 'PRINTING' || state === 'PAUSED';
+
+  const badge = document.getElementById('printer-state-badge');
+  badge.textContent = stale ? `${state} (stale)` : state;
+  badge.className = 'printer-badge ' + printerStateBadgeClass(state);
+
+  document.getElementById('printer-filename').textContent = job?.display_name ?? '';
+  document.getElementById('printer-last-updated').textContent =
+    stale ? 'Last known data' : `Updated ${new Date().toLocaleTimeString()}`;
+
+  const fmt1 = v => (v != null ? `${v.toFixed(1)}°C` : '—');
+  document.getElementById('ps-nozzle').textContent        = fmt1(p.temp_nozzle);
+  document.getElementById('ps-nozzle-target').textContent = p.target_nozzle != null ? `/ ${p.target_nozzle.toFixed(0)}°C` : '';
+  document.getElementById('ps-bed').textContent           = fmt1(p.temp_bed);
+  document.getElementById('ps-bed-target').textContent    = p.target_bed != null ? `/ ${p.target_bed.toFixed(0)}°C` : '';
+  document.getElementById('ps-z').textContent     = p.axis_z    != null ? `${p.axis_z.toFixed(2)} mm` : '—';
+  document.getElementById('ps-speed').textContent = p.speed     != null ? `${p.speed}%`               : '—';
+  document.getElementById('ps-flow').textContent  = p.flow      != null ? `${p.flow}%`                : '—';
+  document.getElementById('ps-fan-hotend').textContent = p.fan_hotend != null ? `${p.fan_hotend} rpm` : '—';
+  document.getElementById('ps-fan-print').textContent  = p.fan_print  != null ? `${p.fan_print} rpm`  : '—';
+
+  const jobPanel = document.getElementById('printer-job-panel');
+  if (isActive && job) {
+    const pct = job.progress ?? 0;
+    document.getElementById('printer-progress-bar').style.width = `${pct.toFixed(1)}%`;
+    document.getElementById('ps-progress').textContent  = `${pct.toFixed(1)}%`;
+    document.getElementById('ps-elapsed').textContent   = job.time_printing  != null ? fmtDuration(job.time_printing)  : '—';
+    document.getElementById('ps-remaining').textContent = job.time_remaining != null ? `${fmtDuration(job.time_remaining)} remaining` : '—';
+    jobPanel.classList.remove('hidden');
+  } else {
+    jobPanel.classList.add('hidden');
+  }
+}
+
+function printerStateBadgeClass(state) {
+  switch (state) {
+    case 'PRINTING':  return 'printer-badge--printing';
+    case 'PAUSED':    return 'printer-badge--paused';
+    case 'IDLE':      return 'printer-badge--idle';
+    case 'FINISHED':  return 'printer-badge--finished';
+    case 'ERROR':
+    case 'ATTENTION': return 'printer-badge--error';
+    default:          return 'printer-badge--unknown';
+  }
+}
+
+function fmtDuration(secs) {
+  if (secs == null || secs < 0) return '—';
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`;
+  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`;
+  return `${s}s`;
 }
 
 // ── Camera list (settings) ────────────────────────────────────────────────────

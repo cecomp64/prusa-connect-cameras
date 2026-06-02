@@ -18,7 +18,7 @@
     </header>
 
     <nav>
-      <button class="tab-btn active" data-tab="streams">Streams</button>
+      <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
       <button class="tab-btn" data-tab="recordings">Recordings</button>
       <button class="tab-btn" data-tab="logs">Logs</button>
@@ -26,14 +26,58 @@
 
     <main>
 
-      <!-- ── Streams ─────────────────────────────────────────────── -->
-      <section id="tab-streams" class="tab active">
+      <!-- ── Dashboard ────────────────────────────────────────────── -->
+      <section id="tab-dashboard" class="tab active">
+
+        <!-- Printer status card -->
+        <div class="printer-card">
+          <div id="printer-unconfigured" class="printer-state-panel hidden">
+            <div class="printer-state-icon">&#128736;</div>
+            <p class="printer-state-msg">PrusaLink not configured.</p>
+            <button class="btn btn-primary btn-sm" onclick="switchTab('settings')">Configure in Settings</button>
+          </div>
+          <div id="printer-error" class="printer-state-panel hidden">
+            <div class="printer-state-icon printer-state-icon--error">&#9888;</div>
+            <p id="printer-error-msg" class="printer-state-msg">Printer unreachable</p>
+          </div>
+          <div id="printer-live" class="hidden">
+            <div class="printer-card-header">
+              <div class="printer-name-row">
+                <span id="printer-state-badge" class="printer-badge">UNKNOWN</span>
+                <span id="printer-filename" class="printer-filename"></span>
+              </div>
+              <span id="printer-last-updated" class="printer-timestamp"></span>
+            </div>
+            <div class="printer-stats-row">
+              <div class="printer-stat"><span class="printer-stat-label">Nozzle</span><span id="ps-nozzle" class="printer-stat-value">&#8212;</span><span id="ps-nozzle-target" class="printer-stat-target"></span></div>
+              <div class="printer-stat"><span class="printer-stat-label">Bed</span><span id="ps-bed" class="printer-stat-value">&#8212;</span><span id="ps-bed-target" class="printer-stat-target"></span></div>
+              <div class="printer-stat"><span class="printer-stat-label">Z Height</span><span id="ps-z" class="printer-stat-value">&#8212;</span></div>
+              <div class="printer-stat"><span class="printer-stat-label">Speed</span><span id="ps-speed" class="printer-stat-value">&#8212;</span></div>
+              <div class="printer-stat"><span class="printer-stat-label">Flow</span><span id="ps-flow" class="printer-stat-value">&#8212;</span></div>
+              <div class="printer-stat"><span class="printer-stat-label">Fan Hotend</span><span id="ps-fan-hotend" class="printer-stat-value">&#8212;</span></div>
+              <div class="printer-stat"><span class="printer-stat-label">Fan Print</span><span id="ps-fan-print" class="printer-stat-value">&#8212;</span></div>
+            </div>
+            <div id="printer-job-panel" class="printer-job-panel hidden">
+              <div class="printer-progress-bar-wrap">
+                <div id="printer-progress-bar" class="printer-progress-bar" style="width:0%"></div>
+              </div>
+              <div class="printer-job-stats">
+                <span id="ps-progress" class="printer-job-pct">0%</span>
+                <span id="ps-elapsed" class="printer-job-time">&#8212;</span>
+                <span id="ps-remaining" class="printer-job-time">&#8212; remaining</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Camera streams grid -->
         <div id="camera-grid" class="camera-grid"></div>
         <div id="no-cameras" class="empty-state hidden">
           <div class="empty-icon">&#128247;</div>
           <p>No cameras configured yet.</p>
           <button class="btn btn-primary" onclick="switchTab('settings')">Configure cameras</button>
         </div>
+
       </section>
 
       <!-- ── Settings ───────────────────────────────────────────── -->
@@ -184,7 +228,7 @@
             <input name="name" type="text" required placeholder="Bed Camera">
           </label>
           <label>
-            <span>WebRTC URL <em class="muted">(mediamtx stream page, shown in Streams tab)</em></span>
+            <span>WebRTC URL <em class="muted">(mediamtx stream page, shown in Dashboard tab)</em></span>
             <input name="webrtc_url" type="url" placeholder="http://192.168.1.100:8889/mystream">
           </label>
           <label>
