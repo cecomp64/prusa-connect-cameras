@@ -119,7 +119,8 @@
                 <ol>
                   <li>Create a project at <a href="https://console.cloud.google.com" target="_blank">console.cloud.google.com</a> and enable <strong>YouTube Data API v3</strong></li>
                   <li>Go to <strong>APIs &amp; Services → Credentials → Create credentials → OAuth 2.0 Client ID</strong></li>
-                  <li>Choose application type <strong>Desktop app</strong></li>
+                  <li>Choose application type <strong>Web application</strong></li>
+                  <li>Under <strong>Authorized redirect URIs</strong>, add exactly: <code class="redirect-uri">http://localhost:8181</code></li>
                   <li>Download the JSON and save it to the path in <em>Client secrets file</em> above</li>
                   <li>Save this form, then click <strong>Authorize with Google</strong></li>
                 </ol>
