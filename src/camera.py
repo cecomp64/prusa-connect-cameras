@@ -5,6 +5,7 @@ import subprocess
 import threading
 
 import requests
+from requests.exceptions import Timeout
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,8 @@ class Camera:
                 else:
                     self._post_snapshot(jpeg)
                     logger.debug("[%s] snapshot sent (%d bytes)", self.name, len(jpeg))
+            except Timeout as exc:
+                logger.debug("[%s] snapshot timeout (transient): %s", self.name, exc)
             except Exception as exc:
                 logger.warning("[%s] snapshot error: %s", self.name, exc)
             self._stop.wait(self.interval)
@@ -146,6 +149,6 @@ class Camera:
                 "Content-Type": "image/jpg",
             },
             data=jpeg,
-            timeout=15,
+            timeout=30,
         )
         resp.raise_for_status()
