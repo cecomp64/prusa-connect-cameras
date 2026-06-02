@@ -18,7 +18,6 @@ from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
 from pydantic import BaseModel
 
 app = FastAPI(title="Prusa Camera Manager")
@@ -202,8 +201,8 @@ def youtube_auth_status():
 @app.post("/api/youtube/auth/start")
 def youtube_auth_start():
     """Generate and return the Google authorization URL."""
-    import os as _os
-    _os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"  # allow http loopback
+    import base64, hashlib, json as _json, secrets as _secrets, tempfile as _tmp
+    from urllib.parse import urlencode
 
     cfg = load_config()
     secrets_file = cfg.get("youtube", {}).get("client_secrets_file", "")
@@ -213,34 +212,38 @@ def youtube_auth_start():
             f"client_secrets.json not found at '{secrets_file}'. "
             "Set the path in Settings → YouTube and save first.",
         )
-    try:
-        flow = Flow.from_client_secrets_file(
-            secrets_file,
-            scopes=_YOUTUBE_SCOPES,
-            redirect_uri=_LOOPBACK_REDIRECT,
-        )
-    except Exception as exc:
-        raise HTTPException(400, f"Could not read client_secrets.json: {exc}")
 
-    import base64, hashlib, json as _json, secrets as _secrets, tempfile as _tmp
+    with open(secrets_file) as f:
+        client_json = _json.load(f)
+    client = client_json.get("web") or client_json.get("installed")
+    if not client:
+        raise HTTPException(400, "Unrecognised client_secrets.json format")
+
+    # Generate PKCE pair ourselves — bypassing google_auth_oauthlib entirely so
+    # we know the exact verifier that corresponds to the challenge in the URL.
     code_verifier  = _secrets.token_urlsafe(96)
     code_challenge = base64.urlsafe_b64encode(
         hashlib.sha256(code_verifier.encode()).digest()
     ).rstrip(b"=").decode()
+    state = _secrets.token_urlsafe(32)
 
-    auth_url, state = flow.authorization_url(
-        access_type="offline",
-        prompt="consent",
-        include_granted_scopes="true",
-        code_challenge=code_challenge,
-        code_challenge_method="S256",
-    )
+    auth_url = client["auth_uri"] + "?" + urlencode({
+        "client_id":             client["client_id"],
+        "redirect_uri":          _LOOPBACK_REDIRECT,
+        "response_type":         "code",
+        "scope":                 " ".join(_YOUTUBE_SCOPES),
+        "access_type":           "offline",
+        "prompt":                "consent",
+        "state":                 state,
+        "code_challenge":        code_challenge,
+        "code_challenge_method": "S256",
+    })
 
     state_file = Path(_tmp.gettempdir()) / f"prusa_yt_flow_{state}.json"
     state_file.write_text(_json.dumps({
-        "state": state,
-        "secrets_file": secrets_file,
-        "redirect_uri": _LOOPBACK_REDIRECT,
+        "state":         state,
+        "secrets_file":  secrets_file,
+        "redirect_uri":  _LOOPBACK_REDIRECT,
         "code_verifier": code_verifier,
     }))
 
