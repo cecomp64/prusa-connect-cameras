@@ -10,6 +10,7 @@ let lastPrinterData  = null;
 let recordingPollTimer = null;
 let recordingCameras = new Set(); // names of cameras currently recording
 let recordingsRefreshTimer = null;
+let lastRecordingsKey = null;
 let printerConfirmPending = null; // { label, fn } while awaiting inline confirmation
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -611,7 +612,6 @@ async function saveRecordingConfig(form) {
 async function loadRecordings() {
   const list  = document.getElementById('rec-list');
   const empty = document.getElementById('no-recs');
-  list.innerHTML = '';
 
   try {
     const [recs, uploads, authStatus] = await Promise.all([
@@ -620,7 +620,12 @@ async function loadRecordings() {
       api('/api/youtube/auth/status').catch(() => ({ authorized: false })),
     ]);
 
+    const key = JSON.stringify({ recs, uploads, authorized: authStatus.authorized });
+    if (key === lastRecordingsKey) return;
+    lastRecordingsKey = key;
+
     if (recs.length === 0) {
+      list.innerHTML = '';
       empty.classList.remove('hidden');
       return;
     }
@@ -680,6 +685,7 @@ function startRecordingsRefresh() {
 
 function stopRecordingsRefresh() {
   if (recordingsRefreshTimer !== null) { clearInterval(recordingsRefreshTimer); recordingsRefreshTimer = null; }
+  lastRecordingsKey = null;
 }
 
 async function stopLiveRecording(cameraName) {
