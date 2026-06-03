@@ -102,7 +102,9 @@ class PrinterMonitor:
             if self.on_print_start:
                 self.on_print_start(state)
 
-        elif state in TERMINAL and self._print_active:
+        elif self._print_active and state not in ACTIVE:
+            # Fire on any exit from active — printers often skip FINISHED and go
+            # straight to IDLE, so we can't gate this on TERMINAL states alone.
             self._print_active = False
             if self.on_print_end:
                 self.on_print_end(state)

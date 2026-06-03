@@ -33,6 +33,8 @@ youtube:
   # OAuth2 client secrets — see scripts/auth_youtube.py for setup instructions
   client_secrets_file: "/etc/prusa-cameras/client_secrets.json"
   credentials_cache: "/var/lib/prusa-cameras/youtube_creds.json"
+  # Persistent log of uploaded files — survives restarts, prevents double-uploads
+  uploaded_log: "/var/lib/prusa-cameras/uploaded.json"
   # unlisted, public, or private
   privacy: "unlisted"
   # Playlist ID to add uploads to (optional, leave empty to skip)

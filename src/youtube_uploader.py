@@ -4,6 +4,7 @@ import json
 import logging
 import pickle
 import subprocess
+import time
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -42,6 +43,8 @@ class YouTubeUploader:
         self._playlist_id = cfg.get("playlist_id", "")
         self._category_id = str(cfg.get("category_id", "28"))
         self._keywords = cfg.get("keywords", ["3d printing", "prusa", "timelapse"])
+        self._uploaded_log = Path(cfg.get("uploaded_log", "/var/lib/prusa-cameras/uploaded.json"))
+        self._uploaded: dict[str, dict] = self._load_uploaded_log()
         self._svc = None  # lazy-initialised on first upload
 
     # ------------------------------------------------------------------
@@ -50,10 +53,15 @@ class YouTubeUploader:
 
     def upload(self, video_path: str, title: str, description: str = "") -> str:
         """Upload *video_path* and return the YouTube watch URL."""
+        path = Path(video_path)
+        key = str(path.resolve())
+        if key in self._uploaded:
+            existing_url = self._uploaded[key]["url"]
+            logger.info("Already uploaded %s → %s (skipping)", path.name, existing_url)
+            return existing_url
+
         if not self._svc:
             self._svc = self._build_service()
-
-        path = Path(video_path)
 
         # --- pre-upload diagnostics ---
         file_size = path.stat().st_size if path.exists() else 0
@@ -140,11 +148,32 @@ class YouTubeUploader:
         if self._playlist_id:
             self._add_to_playlist(video_id)
 
+        self._uploaded[key] = {
+            "url": url,
+            "title": title,
+            "uploaded_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        self._save_uploaded_log()
         return url
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _load_uploaded_log(self) -> dict:
+        if self._uploaded_log.exists():
+            try:
+                return json.loads(self._uploaded_log.read_text())
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.warning("Could not read uploaded log %s: %s", self._uploaded_log, exc)
+        return {}
+
+    def _save_uploaded_log(self) -> None:
+        try:
+            self._uploaded_log.parent.mkdir(parents=True, exist_ok=True)
+            self._uploaded_log.write_text(json.dumps(self._uploaded, indent=2))
+        except OSError as exc:
+            logger.warning("Failed to save uploaded log: %s", exc)
 
     def _build_service(self):
         creds = self._load_creds()
