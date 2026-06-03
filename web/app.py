@@ -518,12 +518,33 @@ def youtube_auth_complete(body: CompleteAuthBody):
 _STATUS_FILE = Path("/tmp/prusa-cameras-status.json")
 
 
+def _live_sessions() -> list[dict]:
+    """Return only recording sessions whose ffmpeg process is still running."""
+    try:
+        data = json.loads(_STATUS_FILE.read_text())
+    except Exception:
+        return []
+    live = []
+    for s in data.get("recording", []):
+        if not isinstance(s, dict):
+            continue
+        pid = s.get("pid")
+        if pid is None:
+            live.append(s)
+            continue
+        try:
+            os.kill(pid, 0)
+            live.append(s)
+        except ProcessLookupError:
+            logger.debug("Stale recording session for '%s' (pid %d gone)", s.get("name"), pid)
+        except PermissionError:
+            live.append(s)  # process exists but owned by a different user
+    return live
+
+
 @app.get("/api/recording-status")
 def recording_status():
-    try:
-        return json.loads(_STATUS_FILE.read_text())
-    except Exception:
-        return {"recording": []}
+    return {"recording": _live_sessions()}
 
 
 @app.post("/api/recording-status/start/{camera_name}")
@@ -666,13 +687,11 @@ def list_recordings():
     rec_dir = Path(cfg.get("recording", {}).get("output_dir", "/var/lib/prusa-cameras/recordings"))
 
     # Build map of filename → session for any active recordings
-    live_by_name: dict[str, dict] = {}
-    try:
-        for s in json.loads(_STATUS_FILE.read_text()).get("recording", []):
-            if isinstance(s, dict) and "path" in s:
-                live_by_name[Path(s["path"]).name] = s
-    except Exception:
-        pass
+    live_by_name: dict[str, dict] = {
+        Path(s["path"]).name: s
+        for s in _live_sessions()
+        if "path" in s
+    }
 
     results = []
     if rec_dir.exists():
