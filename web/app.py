@@ -585,6 +585,12 @@ def start_recording(camera_name: str):
         str(out),
     ]
 
+    import shutil
+    ffmpeg_bin = shutil.which("ffmpeg") or "ffmpeg"
+    cmd[0] = ffmpeg_bin
+    logger.info("[%s] ffmpeg binary: %s", camera_name, ffmpeg_bin)
+    logger.info("[%s] command: %s", camera_name, " ".join(cmd))
+
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.DEVNULL,
