@@ -289,7 +289,7 @@ def printer_upload(
             f"{host}/api/v1/files/{storage}/{urlquote(fname)}",
             headers=headers,
             data=data,
-            timeout=(15, 600),
+            timeout=600,
         )
         r.raise_for_status()
     except requests.HTTPError as exc:
