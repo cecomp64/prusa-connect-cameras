@@ -2,6 +2,7 @@
 
 import json
 import logging
+import signal
 import subprocess
 import threading
 import time
@@ -66,15 +67,17 @@ class Recorder:
             "-loglevel", "warning",
             "-rtsp_transport", "tcp",
             "-i", cam["rtsp_url"],
-            # Copy the stream as-is — no transcoding overhead on the Pi
             "-c:v", "copy",
-            # faststart moves the moov atom to the front so the file is
-            # playable even if recording is interrupted
-            "-movflags", "+faststart",
+            # Do NOT use +faststart here: faststart requires a full-file rewrite
+            # after recording ends. For large files this takes minutes, and if
+            # the process is killed before it finishes the moov atom is never
+            # written, producing an unplayable file. moov-at-end is fine for
+            # local playback and YouTube upload; we re-mux with faststart before
+            # uploading if needed.
             str(out),
         ]
 
-        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+        proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL)
         with self._lock:
             self._sessions[name] = (proc, out)
         logger.info("[%s] Recording started → %s", name, out)
@@ -87,23 +90,29 @@ class Recorder:
             return None
 
         proc, out = entry
-        # Ask ffmpeg to stop cleanly (flush + write moov atom)
+        # SIGTERM asks ffmpeg to stop cleanly and write the moov atom.
+        # stdin is DEVNULL so the old stdin 'q' trick does not work.
+        # We give ffmpeg 120 s to flush: writing the moov atom for a multi-GB
+        # file can take tens of seconds on a Pi. Only SIGKILL as last resort.
+        logger.info("[%s] Sending SIGTERM to ffmpeg (pid %d)", name, proc.pid)
         try:
-            proc.stdin.write(b"q")
-            proc.stdin.flush()
+            proc.send_signal(signal.SIGTERM)
         except OSError:
             pass
 
         try:
-            proc.wait(timeout=30)
+            proc.wait(timeout=120)
+            logger.info("[%s] ffmpeg exited cleanly (rc=%d)", name, proc.returncode)
         except subprocess.TimeoutExpired:
+            logger.warning("[%s] ffmpeg did not exit after 120 s — sending SIGKILL", name)
             proc.kill()
             proc.wait()
 
         self._write_status()
 
         if out.exists() and out.stat().st_size > 0:
-            logger.info("[%s] Recording saved → %s (%d MB)", name, out, out.stat().st_size // 1_048_576)
+            size_mb = out.stat().st_size // 1_048_576
+            logger.info("[%s] Recording saved → %s (%d MB)", name, out, size_mb)
             return str(out)
 
         logger.warning("[%s] Recording file missing or empty: %s", name, out)
