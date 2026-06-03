@@ -1,7 +1,9 @@
 """Uploads completed recordings to YouTube via the Data API v3."""
 
+import json
 import logging
 import pickle
+import subprocess
 from pathlib import Path
 
 from google.auth.transport.requests import Request
@@ -9,6 +11,27 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 logger = logging.getLogger(__name__)
+
+
+def _probe_file(path: Path) -> dict | None:
+    """Return ffprobe JSON summary or None if ffprobe is unavailable/fails."""
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe", "-v", "quiet",
+                "-print_format", "json",
+                "-show_format", "-show_streams",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            return json.loads(result.stdout)
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+        logger.debug("ffprobe unavailable or failed: %s", exc)
+    return None
 
 
 class YouTubeUploader:
@@ -31,6 +54,49 @@ class YouTubeUploader:
             self._svc = self._build_service()
 
         path = Path(video_path)
+
+        # --- pre-upload diagnostics ---
+        file_size = path.stat().st_size if path.exists() else 0
+        logger.info(
+            "YouTube upload starting: %s  size=%d bytes (%.1f MB)",
+            path, file_size, file_size / 1_048_576,
+        )
+
+        probe = _probe_file(path)
+        if probe:
+            fmt = probe.get("format", {})
+            duration = float(fmt.get("duration", 0))
+            bit_rate = int(fmt.get("bit_rate", 0))
+            fmt_name = fmt.get("format_name", "unknown")
+            logger.info(
+                "ffprobe: format=%s  duration=%.1fs  bitrate=%d kbps",
+                fmt_name, duration, bit_rate // 1000,
+            )
+            for stream in probe.get("streams", []):
+                codec_type = stream.get("codec_type", "?")
+                codec_name = stream.get("codec_name", "?")
+                if codec_type == "video":
+                    logger.info(
+                        "ffprobe video stream: codec=%s  %sx%s  fps=%s",
+                        codec_name,
+                        stream.get("width", "?"),
+                        stream.get("height", "?"),
+                        stream.get("r_frame_rate", "?"),
+                    )
+                elif codec_type == "audio":
+                    logger.info(
+                        "ffprobe audio stream: codec=%s  channels=%s  sample_rate=%s",
+                        codec_name,
+                        stream.get("channels", "?"),
+                        stream.get("sample_rate", "?"),
+                    )
+            if duration < 1.0:
+                logger.warning(
+                    "Video duration is %.1fs — YouTube may reject very short files", duration
+                )
+        else:
+            logger.warning("ffprobe not available; cannot validate file before upload")
+
         body = {
             "snippet": {
                 "title": title[:100],  # YouTube title limit
@@ -44,21 +110,32 @@ class YouTubeUploader:
             },
         }
 
-        media = MediaFileUpload(str(path), chunksize=10 * 1024 * 1024, resumable=True)
+        mime = "video/mp4" if str(path).lower().endswith(".mp4") else "video/*"
+        logger.info("Uploading as MIME type: %s", mime)
+        media = MediaFileUpload(
+            str(path), mimetype=mime, chunksize=10 * 1024 * 1024, resumable=True
+        )
         req = self._svc.videos().insert(
             part=",".join(body.keys()), body=body, media_body=media
         )
 
         response = None
+        chunk_count = 0
         while response is None:
             status, response = req.next_chunk()
+            chunk_count += 1
             if status:
                 pct = int(status.progress() * 100)
-                logger.info("YouTube upload %d%%", pct)
+                uploaded = int(status.progress() * file_size)
+                logger.info(
+                    "YouTube upload chunk %d: %d%%  (%d / %d bytes)",
+                    chunk_count, pct, uploaded, file_size,
+                )
 
+        logger.info("YouTube API response: %s", json.dumps(response, indent=2))
         video_id = response["id"]
         url = f"https://youtu.be/{video_id}"
-        logger.info("Uploaded → %s", url)
+        logger.info("Uploaded → %s  (processing status: %s)", url, response.get("status", {}).get("uploadStatus", "unknown"))
 
         if self._playlist_id:
             self._add_to_playlist(video_id)
