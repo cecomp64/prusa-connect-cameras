@@ -12,6 +12,7 @@ import os
 import pickle
 import signal
 import subprocess
+import sys
 import threading
 import uuid
 from pathlib import Path
@@ -677,19 +678,126 @@ def get_upload_statuses():
     return _uploads
 
 
+def _probe_video(path: str) -> dict | None:
+    """Run ffprobe and return parsed JSON, or None if unavailable."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", path],
+            capture_output=True, text=True, timeout=30,
+        )
+        if r.returncode == 0:
+            return json.loads(r.stdout)
+        logger.warning("ffprobe exited %d: %s", r.returncode, r.stderr.strip())
+    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+        logger.warning("ffprobe failed: %s", exc)
+    return None
+
+
+def _remux_for_upload(src: str) -> str | None:
+    """
+    Re-mux src into a temp file with a clean moov atom at the front.
+    Returns path to remuxed file, or None on failure.
+
+    This is a speculative fix for YouTube "Processing Abandoned": when ffmpeg
+    is stopped via stdin 'q', the moov atom should be written, but if the
+    original stream had issues the container may still be malformed.
+    Re-muxing validates and rebuilds the container headers.
+    """
+    dst = src.replace(".mp4", "_remux.mp4")
+    logger.info("Re-muxing %s → %s", src, dst)
+    try:
+        r = subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-v", "warning",
+                "-i", src,
+                "-c", "copy",
+                "-movflags", "+faststart",
+                dst,
+            ],
+            capture_output=True, text=True, timeout=300,
+        )
+        if r.returncode != 0:
+            logger.error("Re-mux failed (exit %d):\nstdout: %s\nstderr: %s", r.returncode, r.stdout.strip(), r.stderr.strip())
+            return None
+        if r.stderr.strip():
+            logger.warning("ffmpeg re-mux warnings: %s", r.stderr.strip())
+        dst_size = Path(dst).stat().st_size if Path(dst).exists() else 0
+        logger.info("Re-mux complete: %s  (%.1f MB)", dst, dst_size / 1_048_576)
+        return dst
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        logger.error("Re-mux exception: %s", exc)
+        return None
+
+
 def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
     from googleapiclient.discovery import build
     from googleapiclient.http import MediaFileUpload
 
     yt = cfg.get("youtube", {})
     creds_file = yt.get("credentials_cache", "")
+    remuxed_path = None
     try:
+        # ── pre-upload diagnostics ──────────────────────────────────────
+        src = Path(video_path)
+        file_size = src.stat().st_size if src.exists() else 0
+        logger.info(
+            "YouTube upload requested: %s  exists=%s  size=%d bytes (%.1f MB)",
+            video_path, src.exists(), file_size, file_size / 1_048_576,
+        )
+
+        probe = _probe_video(video_path)
+        if probe:
+            fmt = probe.get("format", {})
+            duration = float(fmt.get("duration", 0))
+            bit_rate = int(fmt.get("bit_rate", 0))
+            logger.info(
+                "ffprobe: format=%s  duration=%.1fs  bitrate=%d kbps  nb_streams=%s",
+                fmt.get("format_name", "?"), duration, bit_rate // 1000,
+                fmt.get("nb_streams", "?"),
+            )
+            for stream in probe.get("streams", []):
+                ctype = stream.get("codec_type", "?")
+                if ctype == "video":
+                    logger.info(
+                        "ffprobe video: codec=%s  %sx%s  fps=%s  profile=%s",
+                        stream.get("codec_name", "?"),
+                        stream.get("width", "?"), stream.get("height", "?"),
+                        stream.get("r_frame_rate", "?"),
+                        stream.get("profile", "?"),
+                    )
+                elif ctype == "audio":
+                    logger.info(
+                        "ffprobe audio: codec=%s  channels=%s  sample_rate=%s",
+                        stream.get("codec_name", "?"),
+                        stream.get("channels", "?"),
+                        stream.get("sample_rate", "?"),
+                    )
+            if duration < 2.0:
+                logger.warning("Duration %.1fs is very short — YouTube often rejects short files", duration)
+        else:
+            logger.warning("ffprobe unavailable — cannot validate file before upload")
+
+        # ── speculative fix: re-mux to ensure clean container ──────────
+        upload_path = video_path
+        remuxed = _remux_for_upload(video_path)
+        if remuxed:
+            remuxed_path = remuxed
+            upload_path = remuxed
+            upload_size = Path(upload_path).stat().st_size
+            logger.info("Will upload re-muxed file: %s (%.1f MB)", upload_path, upload_size / 1_048_576)
+        else:
+            logger.warning("Re-mux failed — uploading original file")
+            upload_size = file_size
+
+        # ── credentials ────────────────────────────────────────────────
         if not creds_file or not Path(creds_file).exists():
             raise RuntimeError("YouTube credentials not found — authorize in Settings → YouTube")
         with open(creds_file, "rb") as f:
             creds = pickle.load(f)
         if not creds.valid:
             if creds.expired and creds.refresh_token:
+                logger.info("Refreshing expired YouTube credentials")
                 creds.refresh(GoogleRequest())
                 with open(creds_file, "wb") as f:
                     pickle.dump(creds, f)
@@ -709,18 +817,32 @@ def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
                 "selfDeclaredMadeForKids": False,
             },
         }
-        media = MediaFileUpload(video_path, chunksize=10 * 1024 * 1024, resumable=True)
+
+        mime = "video/mp4" if upload_path.lower().endswith(".mp4") else "video/*"
+        logger.info("Uploading %s as %s (%d bytes)", upload_path, mime, upload_size)
+        media = MediaFileUpload(upload_path, mimetype=mime, chunksize=10 * 1024 * 1024, resumable=True)
         req = svc.videos().insert(part=",".join(body.keys()), body=body, media_body=media)
 
         _uploads[filename] = {"status": "uploading", "pct": 0, "url": None, "error": None}
         response = None
+        chunk_num = 0
         while response is None:
             status, response = req.next_chunk()
+            chunk_num += 1
             if status:
-                _uploads[filename]["pct"] = int(status.progress() * 100)
+                pct = int(status.progress() * 100)
+                sent = int(status.progress() * upload_size)
+                _uploads[filename]["pct"] = pct
+                logger.info("Upload chunk %d: %d%%  (%d / %d bytes)", chunk_num, pct, sent, upload_size)
+
+        logger.info("YouTube API response: %s", json.dumps(response, indent=2))
+        upload_status = response.get("status", {}).get("uploadStatus", "unknown")
+        if upload_status != "uploaded":
+            logger.error("YouTube upload status is '%s' — expected 'uploaded'", upload_status)
 
         video_id = response["id"]
         url = f"https://youtu.be/{video_id}"
+        logger.info("Upload complete → %s  uploadStatus=%s", url, upload_status)
 
         playlist_id = yt.get("playlist_id", "")
         if playlist_id:
@@ -732,12 +854,21 @@ def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
                         "resourceId": {"kind": "youtube#video", "videoId": video_id},
                     }},
                 ).execute()
-            except Exception:
-                pass
+                logger.info("Added to playlist %s", playlist_id)
+            except Exception as exc:
+                logger.warning("Playlist insert failed: %s", exc)
 
         _uploads[filename] = {"status": "done", "pct": 100, "url": url, "error": None}
     except Exception as exc:
+        logger.error("YouTube upload failed for %s: %s", filename, exc, exc_info=True)
         _uploads[filename] = {"status": "error", "pct": 0, "url": None, "error": str(exc)}
+    finally:
+        if remuxed_path and Path(remuxed_path).exists():
+            try:
+                Path(remuxed_path).unlink()
+                logger.info("Cleaned up re-muxed temp file: %s", remuxed_path)
+            except OSError:
+                pass
 
 
 # ── Live logs via WebSocket ───────────────────────────────────────────────────
@@ -746,7 +877,7 @@ def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
 async def ws_logs(ws: WebSocket):
     await ws.accept()
     proc = await asyncio.create_subprocess_exec(
-        "journalctl", "-fu", "prusa-cameras", "--no-pager", "--output=cat",
+        "journalctl", "-fu", "prusa-cameras", "-u", "prusa-cameras-web", "--no-pager", "--output=cat",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
     )
@@ -774,5 +905,10 @@ app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True
 
 if __name__ == "__main__":
     import uvicorn
+    logging.basicConfig(
+        level=os.environ.get("LOG_LEVEL", "INFO"),
+        format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+        stream=sys.stdout,
+    )
     port = int(os.environ.get("PORT", 8080))
     uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
