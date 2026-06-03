@@ -67,25 +67,23 @@ class Recorder:
             "-loglevel", "warning",
             "-rtsp_transport", "tcp",
             "-i", cam["rtsp_url"],
-            # Transcode to a clean H.264 profile rather than stream-copying the
-            # camera's raw bitstream. Cameras can produce H.264 with long
-            # keyframe intervals, B-frames, data-partitioning, or non-standard
-            # profiles that cause YouTube "Processing Abandoned". libx264 veryfast
-            # is fast enough for a Pi recording a print at typical camera resolutions.
+            # Silent audio track — YouTube rejects video-only files with
+            # "Processing Abandoned". Must be declared before output codec
+            # options so it isn't mis-parsed as an input option.
+            "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+            # Output codec options must come AFTER all -i inputs; options placed
+            # between two -i flags are treated as input options for the next input.
+            # Transcode to a clean H.264 profile — cameras can produce streams with
+            # long keyframe intervals or non-standard profiles that cause YouTube
+            # "Processing Abandoned".
             "-c:v", "libx264",
             "-preset", "veryfast",
-            "-crf", "23",
-            "-g", "60",   # keyframe every 60 frames (~2 s at 30 fps)
-            "-bf", "0",   # no B-frames — simpler for downstream decoders
-            # Add a silent audio track. YouTube frequently rejects video-only
-            # files with "Processing Abandoned".
-            "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-            "-c:a", "aac", "-b:a", "64k",
+            "-crf", "25",
+            "-g", "30",
+            "-bf", "0",
+            "-c:a", "aac", "-b:a", "128k",
             "-shortest",
-            # frag_keyframe+empty_moov writes a minimal moov at the START of the
-            # file and a self-contained fragment per keyframe. The file is valid
-            # even if ffmpeg is SIGKILL'd mid-recording — no moov-at-end needed.
-            "-movflags", "frag_keyframe+empty_moov",
+            "-movflags", "+frag_keyframe+empty_moov+faststart",
             str(out),
         ]
 
