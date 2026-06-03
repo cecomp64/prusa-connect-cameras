@@ -67,13 +67,25 @@ class Recorder:
             "-loglevel", "warning",
             "-rtsp_transport", "tcp",
             "-i", cam["rtsp_url"],
-            "-c:v", "copy",
-            # Do NOT use +faststart here: faststart requires a full-file rewrite
-            # after recording ends. For large files this takes minutes, and if
-            # the process is killed before it finishes the moov atom is never
-            # written, producing an unplayable file. moov-at-end is fine for
-            # local playback and YouTube upload; we re-mux with faststart before
-            # uploading if needed.
+            # Transcode to a clean H.264 profile rather than stream-copying the
+            # camera's raw bitstream. Cameras can produce H.264 with long
+            # keyframe intervals, B-frames, data-partitioning, or non-standard
+            # profiles that cause YouTube "Processing Abandoned". libx264 veryfast
+            # is fast enough for a Pi recording a print at typical camera resolutions.
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "23",
+            "-g", "60",   # keyframe every 60 frames (~2 s at 30 fps)
+            "-bf", "0",   # no B-frames — simpler for downstream decoders
+            # Add a silent audio track. YouTube frequently rejects video-only
+            # files with "Processing Abandoned".
+            "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+            "-c:a", "aac", "-b:a", "64k",
+            "-shortest",
+            # frag_keyframe+empty_moov writes a minimal moov at the START of the
+            # file and a self-contained fragment per keyframe. The file is valid
+            # even if ffmpeg is SIGKILL'd mid-recording — no moov-at-end needed.
+            "-movflags", "frag_keyframe+empty_moov",
             str(out),
         ]
 
@@ -90,10 +102,9 @@ class Recorder:
             return None
 
         proc, out = entry
-        # SIGTERM asks ffmpeg to stop cleanly and write the moov atom.
-        # stdin is DEVNULL so the old stdin 'q' trick does not work.
-        # We give ffmpeg 120 s to flush: writing the moov atom for a multi-GB
-        # file can take tens of seconds on a Pi. Only SIGKILL as last resort.
+        # With frag_keyframe+empty_moov, a SIGKILL-terminated file is still
+        # valid (all written fragments are self-contained). But we still try
+        # a clean shutdown so the last partial GOP is flushed.
         logger.info("[%s] Sending SIGTERM to ffmpeg (pid %d)", name, proc.pid)
         try:
             proc.send_signal(signal.SIGTERM)
@@ -101,12 +112,18 @@ class Recorder:
             pass
 
         try:
-            proc.wait(timeout=120)
-            logger.info("[%s] ffmpeg exited cleanly (rc=%d)", name, proc.returncode)
+            proc.wait(timeout=30)
+            logger.info("[%s] ffmpeg exited (rc=%d)", name, proc.returncode)
         except subprocess.TimeoutExpired:
-            logger.warning("[%s] ffmpeg did not exit after 120 s — sending SIGKILL", name)
-            proc.kill()
-            proc.wait()
+            logger.warning("[%s] ffmpeg still running after 30 s — sending SIGINT", name)
+            try:
+                proc.send_signal(signal.SIGINT)
+                proc.wait(timeout=10)
+                logger.info("[%s] ffmpeg exited after SIGINT (rc=%d)", name, proc.returncode)
+            except (subprocess.TimeoutExpired, OSError):
+                logger.warning("[%s] ffmpeg still running — sending SIGKILL", name)
+                proc.kill()
+                proc.wait()
 
         self._write_status()
 

@@ -778,17 +778,8 @@ def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
         else:
             logger.warning("ffprobe unavailable — cannot validate file before upload")
 
-        # ── speculative fix: re-mux to ensure clean container ──────────
         upload_path = video_path
-        remuxed = _remux_for_upload(video_path)
-        if remuxed:
-            remuxed_path = remuxed
-            upload_path = remuxed
-            upload_size = Path(upload_path).stat().st_size
-            logger.info("Will upload re-muxed file: %s (%.1f MB)", upload_path, upload_size / 1_048_576)
-        else:
-            logger.warning("Re-mux failed — uploading original file")
-            upload_size = file_size
+        upload_size = file_size
 
         # ── credentials ────────────────────────────────────────────────
         if not creds_file or not Path(creds_file).exists():
