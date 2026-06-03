@@ -726,6 +726,47 @@ em.muted { font-style: normal; }
   padding-top: 2px;
 }
 
+.upload-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.upload-progress {
+  flex: 1;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: var(--bg-secondary, #e0e0e0);
+}
+
+.upload-progress::-webkit-progress-bar {
+  background: var(--bg-secondary, #e0e0e0);
+  border-radius: 4px;
+}
+
+.upload-progress::-webkit-progress-value {
+  background: var(--accent, #fa6831);
+  border-radius: 4px;
+  transition: width 0.2s ease;
+}
+
+.upload-progress::-moz-progress-bar {
+  background: var(--accent, #fa6831);
+  border-radius: 4px;
+}
+
+.upload-progress-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  min-width: 36px;
+  text-align: right;
+}
+
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
 
 /* Stats break into 4+3 grid at medium widths */

@@ -847,6 +847,8 @@ function openUploadModal() {
   document.getElementById('upload-file-input').value = '';
   document.getElementById('upload-print-after').checked = false;
   document.getElementById('upload-status').classList.add('hidden');
+  document.getElementById('upload-progress-wrap').classList.add('hidden');
+  document.getElementById('upload-progress').value = 0;
   const btn = document.getElementById('upload-confirm-btn');
   btn.disabled = false;
   btn.textContent = 'Upload';
@@ -858,41 +860,69 @@ function closeUploadModal() {
   document.getElementById('upload-overlay').classList.add('hidden');
 }
 
-async function doUpload() {
+function doUpload() {
   const fileInput = document.getElementById('upload-file-input');
   if (!fileInput.files.length) { toast('Select a file first', 'error'); return; }
 
-  const file      = fileInput.files[0];
-  const printAfter = document.getElementById('upload-print-after').checked;
-  const storage   = document.getElementById('upload-storage').value;
-  const btn       = document.getElementById('upload-confirm-btn');
-  const statusEl  = document.getElementById('upload-status');
+  const file        = fileInput.files[0];
+  const printAfter  = document.getElementById('upload-print-after').checked;
+  const storage     = document.getElementById('upload-storage').value;
+  const btn         = document.getElementById('upload-confirm-btn');
+  const statusEl    = document.getElementById('upload-status');
+  const progressWrap = document.getElementById('upload-progress-wrap');
+  const progressBar  = document.getElementById('upload-progress');
+  const progressLbl  = document.getElementById('upload-progress-label');
 
   btn.disabled = true;
   btn.textContent = 'Uploading…';
   statusEl.textContent = `Uploading ${file.name}…`;
   statusEl.classList.remove('hidden');
+  progressBar.value = 0;
+  progressLbl.textContent = '0%';
+  progressWrap.classList.remove('hidden');
 
   const form = new FormData();
   form.append('file', file);
   form.append('storage', storage);
   form.append('print_after_upload', String(printAfter));
 
-  try {
-    const resp = await fetch('/api/printer/upload', { method: 'POST', body: form });
-    if (!resp.ok) {
-      let msg = `HTTP ${resp.status}`;
-      try { const err = await resp.json(); msg = err.detail || msg; } catch {}
-      throw new Error(msg);
+  const xhr = new XMLHttpRequest();
+
+  xhr.upload.onprogress = (e) => {
+    if (!e.lengthComputable) return;
+    const pct = Math.round((e.loaded / e.total) * 100);
+    progressBar.value = pct;
+    progressLbl.textContent = `${pct}%`;
+    if (pct === 100) {
+      statusEl.textContent = `Processing ${file.name} on printer…`;
     }
-    toast(printAfter ? `${file.name} uploaded — print starting` : `${file.name} uploaded`, 'success');
-    closeUploadModal();
-  } catch (e) {
-    toast(`Upload failed: ${e.message}`, 'error');
+  };
+
+  xhr.onload = () => {
+    progressWrap.classList.add('hidden');
+    if (xhr.status >= 200 && xhr.status < 300) {
+      toast(printAfter ? `${file.name} uploaded — print starting` : `${file.name} uploaded`, 'success');
+      closeUploadModal();
+    } else {
+      let msg = `HTTP ${xhr.status}`;
+      try { const err = JSON.parse(xhr.responseText); msg = err.detail || msg; } catch {}
+      toast(`Upload failed: ${msg}`, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Upload';
+      statusEl.classList.add('hidden');
+    }
+  };
+
+  xhr.onerror = () => {
+    progressWrap.classList.add('hidden');
+    toast('Upload failed: network error', 'error');
     btn.disabled = false;
     btn.textContent = 'Upload';
     statusEl.classList.add('hidden');
-  }
+  };
+
+  xhr.open('POST', '/api/printer/upload');
+  xhr.send(form);
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────

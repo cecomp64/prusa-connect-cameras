@@ -7,6 +7,7 @@ Reads/writes the shared config.yaml and proxies RTSP streams as MJPEG.
 
 import asyncio
 import json
+import logging
 import os
 import pickle
 import signal
@@ -19,6 +20,8 @@ from typing import Optional
 import requests
 import yaml
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger("prusa_web")
 from fastapi.responses import Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.auth.transport.requests import Request as GoogleRequest
@@ -271,6 +274,8 @@ def printer_upload(
     host, api_key = _pl_config()
     do_print = print_after_upload.lower() in ("true", "1", "yes")
     data = file.file.read()
+    size_mb = len(data) / 1_048_576
+    logger.info("Uploading %s to printer (%s, %.1f MB, print_after=%s)", fname, storage, size_mb, do_print)
     headers: dict[str, str] = {
         "X-Api-Key": api_key,
         "Content-Type": "application/octet-stream",
@@ -287,9 +292,12 @@ def printer_upload(
         )
         r.raise_for_status()
     except requests.HTTPError as exc:
+        logger.error("Printer upload failed for %s: HTTP %s — %s", fname, exc.response.status_code, exc.response.text[:200])
         raise HTTPException(exc.response.status_code, exc.response.text[:200])
     except Exception as exc:
+        logger.error("Printer upload failed for %s: %s", fname, exc)
         raise HTTPException(503, str(exc))
+    logger.info("Upload complete: %s (%.1f MB)", fname, size_mb)
     return {"ok": True, "filename": fname}
 
 
