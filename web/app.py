@@ -302,6 +302,77 @@ def printer_upload(
     return {"ok": True, "filename": fname}
 
 
+def _flatten_files(node, storage: str, prefix: str = "") -> list[dict]:
+    """Recursively flatten a PrusaLink v1 file-tree node into a flat list of print files."""
+    results: list[dict] = []
+    if isinstance(node, list):
+        for item in node:
+            results.extend(_flatten_files(item, storage, prefix))
+    elif isinstance(node, dict):
+        name  = node.get("name", "")
+        ftype = (node.get("type") or "").upper()
+        path  = f"{prefix}/{name}".lstrip("/") if prefix else name
+
+        is_print = ftype == "PRINT_FILE" or (
+            ftype not in ("FOLDER",) and name.lower().endswith((".gcode", ".bgcode"))
+        )
+        if is_print and name:
+            results.append({
+                "name":         name,
+                "display_name": node.get("display_name") or name,
+                "size":         node.get("size") or node.get("bytes") or 0,
+                "timestamp":    node.get("m_timestamp") or node.get("date") or 0,
+                "storage":      storage,
+                "path":         path,
+            })
+        for child in node.get("children") or []:
+            results.extend(_flatten_files(child, storage, path if name and name != "/" else prefix))
+    return results
+
+
+@app.get("/api/printer/files/{storage}")
+def list_printer_files(storage: str):
+    if storage not in ("usb", "local"):
+        raise HTTPException(400, "storage must be 'usb' or 'local'")
+    host, api_key = _pl_config()
+    try:
+        r = requests.get(
+            f"{host}/api/v1/files/{storage}",
+            headers={"X-Api-Key": api_key},
+            timeout=10,
+        )
+        r.raise_for_status()
+        data = r.json()
+    except requests.HTTPError as exc:
+        raise HTTPException(exc.response.status_code, exc.response.text[:200])
+    except Exception as exc:
+        raise HTTPException(503, str(exc))
+    files = _flatten_files(data, storage)
+    files.sort(key=lambda f: f["timestamp"], reverse=True)
+    return files
+
+
+@app.post("/api/printer/files/{storage}/{path:path}/print")
+def print_file(storage: str, path: str):
+    from urllib.parse import quote as urlquote
+    if storage not in ("usb", "local"):
+        raise HTTPException(400, "storage must be 'usb' or 'local'")
+    host, api_key = _pl_config()
+    try:
+        r = requests.post(
+            f"{host}/api/files/{storage}/{urlquote(path)}",
+            headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
+            json={"command": "select", "print": True},
+            timeout=10,
+        )
+        r.raise_for_status()
+    except requests.HTTPError as exc:
+        raise HTTPException(exc.response.status_code, exc.response.text[:200])
+    except Exception as exc:
+        raise HTTPException(503, str(exc))
+    return {"ok": True}
+
+
 @app.get("/api/youtube")
 def get_youtube():
     return load_config().get("youtube", {})

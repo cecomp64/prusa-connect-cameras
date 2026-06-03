@@ -66,6 +66,20 @@
         </div>
         <div id="printer-controls" class="printer-controls hidden"></div>
 
+        <!-- Printer file browser -->
+        <div id="printer-files-panel" class="printer-files-panel hidden">
+          <div class="printer-files-header">
+            <span class="printer-files-title">Files on Printer</span>
+            <select id="printer-files-storage" class="files-storage-select">
+              <option value="usb">USB</option>
+              <option value="local">Local</option>
+            </select>
+            <button class="btn btn-ghost btn-sm" id="printer-files-refresh">&#8635; Refresh</button>
+            <button class="btn btn-ghost btn-icon" id="printer-files-close">&#10005;</button>
+          </div>
+          <div id="printer-files-list" class="printer-files-list"></div>
+        </div>
+
         <!-- Camera streams grid -->
         <div id="camera-grid" class="camera-grid"></div>
         <div id="no-cameras" class="empty-state hidden">

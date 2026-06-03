@@ -721,6 +721,66 @@ em.muted { font-style: normal; }
   min-width: 0;
 }
 
+/* ── Printer file browser ─────────────────────────────────────────────────────── */
+.printer-files-panel {
+  margin: 8px 0 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.printer-files-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.printer-files-title {
+  font-size: 13px;
+  font-weight: 600;
+  flex: 1;
+}
+
+.files-storage-select {
+  background: var(--surface-3);
+  color: var(--text);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  padding: 3px 8px;
+  font-size: 12px;
+  font-family: var(--font);
+  cursor: pointer;
+}
+
+.printer-files-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.printer-file-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.printer-file-item:last-child { border-bottom: none; }
+
+.printer-file-info { flex: 1; min-width: 0; }
+.printer-file-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.printer-file-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.printer-files-msg {
+  padding: 14px 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+.printer-files-err { color: var(--red); }
+
 /* ── Upload status line ───────────────────────────────────────────────────────── */
 .upload-status {
   font-size: 12px;

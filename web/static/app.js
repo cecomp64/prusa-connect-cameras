@@ -12,6 +12,7 @@ let recordingCameras = new Set(); // names of cameras currently recording
 let recordingsRefreshTimer = null;
 let lastRecordingsKey = null;
 let printerConfirmPending = null; // { label, fn } while awaiting inline confirmation
+let printerFilesOpen = false;
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -72,7 +73,17 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('upload-overlay').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeUploadModal();
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeUploadModal(); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeUploadModal(); closePrinterFiles(); } });
+
+  // Printer file browser
+  document.getElementById('printer-files-refresh').addEventListener('click', () =>
+    loadPrinterFiles(document.getElementById('printer-files-storage').value));
+  document.getElementById('printer-files-close').addEventListener('click', closePrinterFiles);
+  document.getElementById('printer-files-storage').addEventListener('change', e => loadPrinterFiles(e.target.value));
+  document.getElementById('printer-files-list').addEventListener('click', e => {
+    const btn = e.target.closest('[data-action="print-file"]');
+    if (btn) printFile(btn.dataset.storage, btn.dataset.path, btn.dataset.name);
+  });
 
   // Password show/hide (all .toggle-pw buttons)
   document.addEventListener('click', e => {
@@ -824,12 +835,14 @@ function renderPrinterControls(state, stale) {
     ${isPaused   ? '<button class="btn btn-ghost btn-sm" id="pc-resume">&#9654; Resume</button>' : ''}
     ${isActive   ? '<button class="btn btn-ghost btn-sm btn-danger" id="pc-stop">&#9632; Stop</button>' : ''}
     <button class="btn btn-ghost btn-sm" id="pc-upload">&#8593; Upload file</button>
+    <button class="btn btn-ghost btn-sm" id="pc-browse">&#128193; Files</button>
   `;
 
   if (isPrinting) document.getElementById('pc-pause').onclick  = () => startPrinterConfirm('Pause the print?', printerPause, state, stale);
   if (isPaused)   document.getElementById('pc-resume').onclick = () => startPrinterConfirm('Resume the print?', printerResume, state, stale);
   if (isActive)   document.getElementById('pc-stop').onclick   = () => startPrinterConfirm('Stop the print? This cannot be undone.', printerStop, state, stale);
   document.getElementById('pc-upload').onclick = openUploadModal;
+  document.getElementById('pc-browse').onclick = togglePrinterFiles;
 }
 
 function startPrinterConfirm(label, fn, state, stale) {
@@ -859,6 +872,59 @@ async function printerStop() {
     toast('Print stopped', 'success');
   } catch (e) { toast(`Stop failed: ${e.message}`, 'error'); }
   loadPrinterStatus();
+}
+
+// ── Printer file browser ──────────────────────────────────────────────────────
+
+function togglePrinterFiles() {
+  printerFilesOpen = !printerFilesOpen;
+  document.getElementById('printer-files-panel').classList.toggle('hidden', !printerFilesOpen);
+  if (printerFilesOpen) loadPrinterFiles(document.getElementById('printer-files-storage').value);
+}
+
+function closePrinterFiles() {
+  printerFilesOpen = false;
+  document.getElementById('printer-files-panel').classList.add('hidden');
+}
+
+async function loadPrinterFiles(storage) {
+  const list = document.getElementById('printer-files-list');
+  list.innerHTML = '<div class="printer-files-msg">Loading…</div>';
+  try {
+    const files = await api(`/api/printer/files/${encodeURIComponent(storage)}`);
+    if (!files.length) {
+      list.innerHTML = `<div class="printer-files-msg">No print files found on ${esc(storage)}.</div>`;
+      return;
+    }
+    list.innerHTML = files.map(f => `
+      <div class="printer-file-item">
+        <div class="printer-file-info">
+          <div class="printer-file-name" title="${esc(f.path)}">${esc(f.display_name)}</div>
+          <div class="printer-file-meta">${fmtBytes(f.size)}${f.timestamp ? ' &middot; ' + fmtDate(f.timestamp) : ''}</div>
+        </div>
+        <button class="btn btn-primary btn-sm"
+                data-action="print-file"
+                data-storage="${esc(f.storage)}"
+                data-path="${esc(f.path)}"
+                data-name="${esc(f.display_name)}">&#9654; Print</button>
+      </div>
+    `).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="printer-files-msg printer-files-err">Error: ${esc(e.message)}</div>`;
+  }
+}
+
+async function printFile(storage, path, name) {
+  if (!confirm(`Start printing "${name}"?`)) return;
+  const encodedPath = path.split('/').map(encodeURIComponent).join('/');
+  try {
+    await api(`/api/printer/files/${encodeURIComponent(storage)}/${encodedPath}/print`, { method: 'POST' });
+    toast(`Print started: ${name}`, 'success');
+    closePrinterFiles();
+    loadPrinterStatus();
+  } catch (e) {
+    toast(`Failed to start print: ${e.message}`, 'error');
+  }
 }
 
 // ── File upload modal ─────────────────────────────────────────────────────────
