@@ -179,13 +179,15 @@ function buildCameraCard(cam) {
         <span class="rec-dot${isRecording ? '' : ' hidden'}" title="Recording"></span>${esc(cam.name)}
       </span>
       <div class="cam-actions">
+        <button class="btn btn-ghost btn-sm btn-rec${isRecording ? ' hidden' : ''}" data-action="start-rec">&#9679; Record</button>
         <button class="btn btn-ghost btn-sm" data-action="edit">Edit</button>
       </div>
     </div>
   `;
 
   card.addEventListener('click', e => {
-    if (e.target.closest('[data-action="edit"]')) openModal(cam);
+    if (e.target.closest('[data-action="edit"]'))      openModal(cam);
+    if (e.target.closest('[data-action="start-rec"]')) startManualRecording(cam.name);
   });
 
   return card;
@@ -214,15 +216,17 @@ async function refreshRecordingStatus() {
   } catch {
     recordingCameras = new Set();
   }
-  // Update dots on any already-rendered camera cards
+  // Update dots and record buttons on any already-rendered camera cards
   document.querySelectorAll('.camera-card[data-cam]').forEach(card => {
     const dot = card.querySelector('.rec-dot');
+    const recBtn = card.querySelector('.btn-rec');
     const isRecording = recordingCameras.has(card.dataset.cam);
     if (dot) dot.classList.toggle('hidden', !isRecording);
     if (!dot && isRecording) {
       const nameEl = card.querySelector('.cam-name');
       if (nameEl) nameEl.insertAdjacentHTML('afterbegin', '<span class="rec-dot"></span>');
     }
+    if (recBtn) recBtn.classList.toggle('hidden', isRecording);
   });
 }
 
@@ -686,6 +690,16 @@ function startRecordingsRefresh() {
 function stopRecordingsRefresh() {
   if (recordingsRefreshTimer !== null) { clearInterval(recordingsRefreshTimer); recordingsRefreshTimer = null; }
   lastRecordingsKey = null;
+}
+
+async function startManualRecording(cameraName) {
+  try {
+    await api(`/api/recording-status/start/${encodeURIComponent(cameraName)}`, { method: 'POST' });
+    toast(`Recording started for ${cameraName}`, 'success');
+    refreshRecordingStatus();
+  } catch (e) {
+    toast(`Start failed: ${e.message}`, 'error');
+  }
 }
 
 async function stopLiveRecording(cameraName) {

@@ -133,6 +133,9 @@ main {
 .btn-danger { color: var(--red); border-color: var(--red); }
 .btn-danger:hover { background: rgba(248,81,73,.1); }
 
+.btn-rec { color: var(--red); }
+.btn-rec:hover { background: rgba(248,81,73,.1); border-color: var(--red); }
+
 .btn-sm { padding: 4px 10px; font-size: 12px; }
 .btn-icon { padding: 4px 8px; border: none; }
 .btn:disabled { opacity: .5; cursor: default; pointer-events: none; }

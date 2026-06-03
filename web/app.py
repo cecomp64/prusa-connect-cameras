@@ -526,6 +526,60 @@ def recording_status():
         return {"recording": []}
 
 
+@app.post("/api/recording-status/start/{camera_name}")
+def start_recording(camera_name: str):
+    cfg = load_config()
+    cam = _find_cam(cfg, camera_name)
+    if not cam:
+        raise HTTPException(404, f"Camera '{camera_name}' not found")
+
+    try:
+        data = json.loads(_STATUS_FILE.read_text())
+    except Exception:
+        data = {"recording": []}
+
+    sessions = data.get("recording", [])
+    if any(isinstance(s, dict) and s.get("name") == camera_name for s in sessions):
+        raise HTTPException(409, f"Camera '{camera_name}' is already recording")
+
+    rec_cfg = cfg.get("recording", {})
+    output_dir = Path(rec_cfg.get("output_dir", "/var/lib/prusa-cameras/recordings"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    import time as _time
+    timestamp = _time.strftime("%Y%m%d_%H%M%S")
+    safe = camera_name.replace(" ", "_").lower()
+    out = output_dir / f"{safe}_manual_{timestamp}.mp4"
+
+    cmd = [
+        "ffmpeg",
+        "-loglevel", "warning",
+        "-rtsp_transport", "tcp",
+        "-i", cam["rtsp_url"],
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "23",
+        "-g", "60",
+        "-bf", "0",
+        "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+        "-c:a", "aac", "-b:a", "64k",
+        "-shortest",
+        "-movflags", "frag_keyframe+empty_moov",
+        str(out),
+    ]
+
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    sessions.append({"name": camera_name, "pid": proc.pid, "path": str(out)})
+    data["recording"] = sessions
+    try:
+        _STATUS_FILE.write_text(json.dumps(data))
+    except OSError:
+        pass
+
+    logger.info("Manual recording started for '%s' → %s (pid %d)", camera_name, out, proc.pid)
+    return {"ok": True, "path": str(out)}
+
+
 @app.post("/api/recording-status/stop/{camera_name}")
 def stop_recording(camera_name: str):
     try:
