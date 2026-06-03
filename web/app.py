@@ -549,25 +549,21 @@ def recording_status():
 
 @app.post("/api/recording-status/start/{camera_name}")
 def start_recording(camera_name: str):
+    import time as _time
+
     cfg = load_config()
     cam = _find_cam(cfg, camera_name)
     if not cam:
         raise HTTPException(404, f"Camera '{camera_name}' not found")
 
-    try:
-        data = json.loads(_STATUS_FILE.read_text())
-    except Exception:
-        data = {"recording": []}
-
-    sessions = data.get("recording", [])
-    if any(isinstance(s, dict) and s.get("name") == camera_name for s in sessions):
+    # Use PID-checked live sessions so a dead stale entry doesn't block restarts
+    if any(s.get("name") == camera_name for s in _live_sessions()):
         raise HTTPException(409, f"Camera '{camera_name}' is already recording")
 
     rec_cfg = cfg.get("recording", {})
     output_dir = Path(rec_cfg.get("output_dir", "/var/lib/prusa-cameras/recordings"))
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    import time as _time
     timestamp = _time.strftime("%Y%m%d_%H%M%S")
     safe = camera_name.replace(" ", "_").lower()
     out = output_dir / f"{safe}_manual_{timestamp}.mp4"
@@ -589,15 +585,37 @@ def start_recording(camera_name: str):
         str(out),
     ]
 
-    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+
+    # Wait briefly so we can catch an immediate failure (bad URL, codec error, etc.)
+    _time.sleep(1.5)
+    rc = proc.poll()
+    if rc is not None:
+        stderr = proc.stderr.read().decode(errors="replace").strip()
+        logger.error("[%s] ffmpeg exited immediately (rc=%d): %s", camera_name, rc, stderr)
+        raise HTTPException(500, f"Recording failed to start (rc={rc}): {stderr[-300:] or 'unknown error'}")
+
+    # Process is alive — drain its stderr in the background so warnings reach the log
+    def _drain_stderr(p: subprocess.Popen, name: str) -> None:
+        for line in p.stderr:
+            logger.warning("[%s] ffmpeg: %s", name, line.decode(errors="replace").rstrip())
+
+    threading.Thread(target=_drain_stderr, args=(proc, camera_name), daemon=True).start()
+
+    # Write only live sessions + the new one (avoids re-adding any stale entries)
+    sessions = [s for s in _live_sessions() if s.get("name") != camera_name]
     sessions.append({"name": camera_name, "pid": proc.pid, "path": str(out)})
-    data["recording"] = sessions
     try:
-        _STATUS_FILE.write_text(json.dumps(data))
+        _STATUS_FILE.write_text(json.dumps({"recording": sessions}))
     except OSError:
         pass
 
-    logger.info("Manual recording started for '%s' → %s (pid %d)", camera_name, out, proc.pid)
+    logger.info("[%s] Manual recording started → %s (pid %d)", camera_name, out, proc.pid)
     return {"ok": True, "path": str(out)}
 
 
