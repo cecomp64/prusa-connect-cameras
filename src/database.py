@@ -35,6 +35,25 @@ CREATE TABLE IF NOT EXISTS printer_telemetry (
 );
 CREATE INDEX IF NOT EXISTS idx_pt_ts ON printer_telemetry(ts DESC);
 
+CREATE TABLE IF NOT EXISTS printer_status (
+    id                 INTEGER PRIMARY KEY CHECK (id = 1),
+    ts                 INTEGER NOT NULL,
+    state              TEXT    NOT NULL,
+    temp_nozzle        REAL,
+    target_nozzle      REAL,
+    temp_bed           REAL,
+    target_bed         REAL,
+    axis_z             REAL,
+    speed              INTEGER,
+    flow               INTEGER,
+    fan_hotend         INTEGER,
+    fan_print          INTEGER,
+    job_progress       REAL,
+    job_time_remaining INTEGER,
+    job_time_printing  INTEGER,
+    job_display_name   TEXT
+);
+
 CREATE TABLE IF NOT EXISTS print_jobs (
     id               TEXT    PRIMARY KEY,
     display_name     TEXT,
@@ -94,6 +113,16 @@ class Database:
             self._conn.execute(
                 f"INSERT INTO printer_telemetry (ts, {', '.join(_TELEMETRY_COLUMNS)}) "
                 f"VALUES (?, {', '.join('?' * len(_TELEMETRY_COLUMNS))})",
+                (int(time.time()), *row),
+            )
+            self._conn.commit()
+
+    def update_printer_status(self, snapshot: dict) -> None:
+        row = tuple(snapshot.get(c) for c in _TELEMETRY_COLUMNS)
+        with self._lock:
+            self._conn.execute(
+                f"INSERT OR REPLACE INTO printer_status (id, ts, {', '.join(_TELEMETRY_COLUMNS)}) "
+                f"VALUES (1, ?, {', '.join('?' * len(_TELEMETRY_COLUMNS))})",
                 (int(time.time()), *row),
             )
             self._conn.commit()

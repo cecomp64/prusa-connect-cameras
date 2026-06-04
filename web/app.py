@@ -171,7 +171,7 @@ def get_printer_status():
     try:
         with _open_db() as conn:
             row = conn.execute(
-                "SELECT * FROM printer_telemetry ORDER BY ts DESC LIMIT 1"
+                "SELECT * FROM printer_status WHERE id = 1"
             ).fetchone()
     except Exception:
         # DB doesn't exist yet (main service never started)
@@ -181,7 +181,7 @@ def get_printer_status():
         return {"configured": True, "reachable": False, "error": "Waiting for first poll — printer may be idle", "printer": None, "job": None}
 
     age = int(time.time()) - row["ts"]
-    reachable = age < 360  # stale after 6 min (idle heartbeat writes every 5 min)
+    reachable = age < 60  # stale after 60s (main service polls every 10s)
 
     return {
         "configured": True,

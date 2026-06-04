@@ -77,6 +77,7 @@ class PrinterMonitor:
             try:
                 snapshot = self._fetch_snapshot()
                 state    = PrinterState(snapshot["state"])
+                self._db.update_printer_status(snapshot)
 
                 if state in ACTIVE:
                     if self._snapshot_changed(snapshot):
