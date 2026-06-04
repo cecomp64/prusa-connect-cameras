@@ -32,7 +32,7 @@ class PrinterMonitor:
     def __init__(
         self,
         cfg: dict,
-        on_print_start: Callable[[PrinterState], None] | None = None,
+        on_print_start: Callable[[PrinterState, str | None], None] | None = None,
         on_print_end: Callable[[PrinterState], None] | None = None,
     ):
         self._host: str = cfg["host"].rstrip("/")
@@ -44,6 +44,7 @@ class PrinterMonitor:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_state = PrinterState.UNKNOWN
+        self._last_display_name: str | None = None
         self._print_active = False
 
     # ------------------------------------------------------------------
@@ -84,7 +85,9 @@ class PrinterMonitor:
             timeout=10,
         )
         resp.raise_for_status()
-        raw = resp.json().get("printer", {}).get("state", "").upper()
+        data = resp.json()
+        raw = data.get("printer", {}).get("state", "").upper()
+        self._last_display_name = (data.get("job") or {}).get("display_name")
         try:
             return PrinterState(raw)
         except ValueError:
@@ -100,7 +103,7 @@ class PrinterMonitor:
         if state in ACTIVE and not self._print_active:
             self._print_active = True
             if self.on_print_start:
-                self.on_print_start(state)
+                self.on_print_start(state, self._last_display_name)
 
         elif self._print_active and state not in ACTIVE:
             # Fire on any exit from active — printers often skip FINISHED and go

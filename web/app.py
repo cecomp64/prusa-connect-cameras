@@ -10,12 +10,14 @@ import json
 import logging
 import os
 import pickle
+import re
 import signal
 import subprocess
 import sys
 import threading
 import time
 import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -218,6 +220,138 @@ def get_system_status():
         "mem_used":  round(mem.used / 1024 / 1024),
         "mem_total": round(mem.total / 1024 / 1024),
         "uptime":    uptime_secs,
+    }
+
+
+@app.get("/api/stats")
+def get_stats():
+    cfg = load_config()
+    rec_dir = Path(cfg.get("recording", {}).get("output_dir", "/var/lib/prusa-cameras/recordings"))
+    events_path = Path(cfg.get("stats", {}).get("events_file",
+                       "/var/lib/prusa-cameras/print_events.json"))
+
+    # Load persisted events from print_events.json
+    events: list[dict] = []
+    if events_path.exists():
+        try:
+            events = json.loads(events_path.read_text())
+        except Exception:
+            pass
+
+    # Supplement with recording files for prints before the logger existed.
+    # Group by timestamp — multiple cameras start simultaneously so share the same ts.
+    known_starts: set[str] = {e["start_time"][:16] for e in events if e.get("start_time")}
+    rec_groups: dict[str, dict] = {}  # ts_str → synthetic event
+
+    if rec_dir.exists():
+        for f in rec_dir.glob("*.mp4"):
+            m = re.search(r"_(print|manual)_(\d{8}_\d{6})$", f.stem)
+            if not m or m.group(1) != "print":
+                continue
+            ts_str = m.group(2)
+            try:
+                start_dt = datetime.strptime(ts_str, "%Y%m%d_%H%M%S")
+            except ValueError:
+                continue
+            start_iso = start_dt.isoformat(timespec="seconds")
+            if start_iso[:16] in known_starts:
+                continue
+            if ts_str not in rec_groups:
+                end_dt = datetime.fromtimestamp(f.stat().st_mtime)
+                rec_groups[ts_str] = {
+                    "id":               f"rec_{ts_str}",
+                    "start_time":       start_iso,
+                    "end_time":         end_dt.isoformat(timespec="seconds"),
+                    "duration_seconds": max(0, int((end_dt - start_dt).total_seconds())),
+                    "display_name":     None,
+                    "end_state":        "FINISHED",
+                    "recordings":       [],
+                }
+                known_starts.add(start_iso[:16])
+            rec_groups[ts_str]["recordings"].append(str(f))
+
+    all_events = events + list(rec_groups.values())
+    all_events.sort(key=lambda e: e.get("start_time") or "")
+
+    # ── Aggregates ────────────────────────────────────────────────────────────────
+    total_prints = len(all_events)
+    total_secs   = sum(e.get("duration_seconds") or 0 for e in all_events)
+    total_hours  = round(total_secs / 3600, 1)
+    avg_hours    = round(total_hours / total_prints, 1) if total_prints else 0.0
+
+    longest = max(all_events, key=lambda e: e.get("duration_seconds") or 0, default=None)
+
+    # by_month — last 13 calendar months
+    now = datetime.now()
+    months = []
+    for i in range(12, -1, -1):
+        year  = now.year  + (now.month - 1 - i) // 12
+        month = (now.month - 1 - i) % 12 + 1
+        months.append((f"{year:04d}-{month:02d}", datetime(year, month, 1)))
+
+    month_counts: dict[str, dict] = {m[0]: {"count": 0, "secs": 0} for m in months}
+    for e in all_events:
+        st = e.get("start_time")
+        if not st:
+            continue
+        key = st[:7]  # "YYYY-MM"
+        if key in month_counts:
+            month_counts[key]["count"] += 1
+            month_counts[key]["secs"]  += e.get("duration_seconds") or 0
+
+    by_month = []
+    for key, dt in months:
+        d = month_counts[key]
+        by_month.append({
+            "month": key,
+            "label": dt.strftime("%b '%y"),
+            "count": d["count"],
+            "hours": round(d["secs"] / 3600, 1),
+        })
+
+    # by_weekday — Mon=0 … Sun=6
+    day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    wd_data = [{"day": d, "count": 0, "secs": 0} for d in day_names]
+    for e in all_events:
+        st = e.get("start_time")
+        if not st:
+            continue
+        try:
+            wd = datetime.fromisoformat(st).weekday()
+            wd_data[wd]["count"] += 1
+            wd_data[wd]["secs"]  += e.get("duration_seconds") or 0
+        except ValueError:
+            pass
+    by_weekday = [{"day": d["day"], "count": d["count"], "hours": round(d["secs"] / 3600, 1)}
+                  for d in wd_data]
+
+    # by_duration — bucket distribution
+    buckets = [("<1h", 0, 3600), ("1–2h", 3600, 7200), ("2–4h", 7200, 14400),
+               ("4–8h", 14400, 28800), (">8h", 28800, None)]
+    bucket_counts = {label: 0 for label, *_ in buckets}
+    for e in all_events:
+        d = e.get("duration_seconds") or 0
+        for label, lo, hi in buckets:
+            if d >= lo and (hi is None or d < hi):
+                bucket_counts[label] += 1
+                break
+    by_duration = [{"label": label, "count": bucket_counts[label]} for label, *_ in buckets]
+
+    # recent prints — last 15, newest first
+    recent_prints = list(reversed(all_events[-15:]))
+
+    return {
+        "total_prints":    total_prints,
+        "total_hours":     total_hours,
+        "avg_duration_hours": avg_hours,
+        "longest_print":   {
+            "duration_seconds": longest.get("duration_seconds"),
+            "display_name":     longest.get("display_name"),
+        } if longest else None,
+        "by_month":        by_month,
+        "by_weekday":      by_weekday,
+        "by_duration":     by_duration,
+        "recent_prints":   recent_prints,
     }
 
 

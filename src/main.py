@@ -6,10 +6,12 @@ import signal
 import sys
 import threading
 import time
+from pathlib import Path
 
 import yaml
 
 from camera import Camera
+from print_logger import PrintLogger
 from printer_monitor import PrinterMonitor, PrinterState
 from recorder import Recorder
 from youtube_uploader import YouTubeUploader
@@ -39,13 +41,19 @@ def main() -> None:
     yt_cfg = cfg.get("youtube", {})
     uploader = YouTubeUploader(yt_cfg) if yt_cfg.get("enabled") else None
 
-    def on_print_start(state: PrinterState) -> None:
-        logger.info("Print started (%s) — starting all recordings", state.value)
+    events_path = Path(cfg.get("stats", {}).get("events_file",
+                       "/var/lib/prusa-cameras/print_events.json"))
+    print_logger = PrintLogger(events_path)
+
+    def on_print_start(state: PrinterState, display_name: str | None = None) -> None:
+        logger.info("Print started (%s) — %s", state.value, display_name or "unknown file")
+        print_logger.on_print_start(display_name)
         recorder.start_all(label="print")
 
     def on_print_end(state: PrinterState) -> None:
         logger.info("Print ended (%s) — stopping recordings", state.value)
         files = recorder.stop_all()
+        print_logger.on_print_end(state.value, [str(f) for f in files])
 
         if uploader and files:
             timestamp = time.strftime("%Y-%m-%d %H:%M")

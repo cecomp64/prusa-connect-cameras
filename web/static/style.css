@@ -795,6 +795,87 @@ em.muted { font-style: normal; }
   grid-template-columns: repeat(4, 1fr);
 }
 
+/* ── Stats tab ───────────────────────────────────────────────────────────────── */
+.stats-summary-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stat-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-card-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-muted);
+}
+
+.stat-card-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.1;
+}
+
+.stat-card-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stats-charts-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.stats-chart-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px 20px;
+}
+
+.stats-chart-card h3 {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  color: var(--text-muted);
+  margin: 0 0 14px;
+}
+
+.stats-recent-list { display: flex; flex-direction: column; }
+
+.stats-recent-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto auto;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.stats-recent-item:last-child { border-bottom: none; }
+.stats-recent-name { font-family: var(--mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stats-recent-date { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.stats-recent-dur  { font-size: 12px; color: var(--text); white-space: nowrap; }
+.stats-recent-empty { padding: 16px; font-size: 13px; color: var(--text-muted); text-align: center; }
+
 /* ── Upload status line ───────────────────────────────────────────────────────── */
 .upload-status {
   font-size: 12px;

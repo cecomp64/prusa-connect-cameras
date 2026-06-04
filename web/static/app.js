@@ -8,6 +8,9 @@ let toastTimer = null;
 let printerPollTimer = null;
 let lastPrinterData  = null;
 let systemPollTimer  = null;
+let _chartMonthly    = null;
+let _chartWeekday    = null;
+let _chartDuration   = null;
 let recordingPollTimer = null;
 let recordingCameras = new Set(); // names of cameras currently recording
 let recordingsRefreshTimer = null;
@@ -118,6 +121,7 @@ function switchTab(name) {
   if (name === 'settings')   { loadCameraList(); loadPrusaLink(); loadYouTube(); loadRecordingConfig(); }
   if (name === 'recordings') { loadRecordings(); startRecordingsRefresh(); }
   else                         stopRecordingsRefresh();
+  if (name === 'stats')      loadStats();
   if (name === 'logs')       startLogStream();
 }
 
@@ -274,6 +278,121 @@ async function loadSystemStatus() {
   document.getElementById('sys-mem-used').textContent  = fmtMB(data.mem_used);
   document.getElementById('sys-mem-total').textContent = data.mem_total != null ? `/ ${data.mem_total} MB` : '';
   document.getElementById('sys-uptime').textContent    = data.uptime != null ? fmtDuration(data.uptime) : '—';
+}
+
+// ── Stats tab ─────────────────────────────────────────────────────────────────
+
+function _cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function _makeChart(id, cfg) {
+  const canvas = document.getElementById(id);
+  if (!canvas) return null;
+  return new Chart(canvas, cfg);
+}
+
+function _chartScaleDefaults() {
+  const mutedColor  = 'rgba(125,133,144,0.5)';
+  const gridColor   = 'rgba(48,54,61,0.8)';
+  return {
+    x: { grid: { color: gridColor }, ticks: { color: mutedColor } },
+    y: { grid: { color: gridColor }, ticks: { color: mutedColor }, beginAtZero: true },
+  };
+}
+
+async function loadStats() {
+  let data;
+  try { data = await api('/api/stats'); } catch { return; }
+
+  const fmtH = h => h != null ? `${h}h` : '—';
+
+  document.getElementById('st-total').textContent   = data.total_prints ?? '—';
+  document.getElementById('st-hours').textContent   = fmtH(data.total_hours);
+  document.getElementById('st-avg').textContent     = fmtH(data.avg_duration_hours);
+
+  const lp = data.longest_print;
+  document.getElementById('st-longest').textContent      = lp ? fmtDuration(lp.duration_seconds) : '—';
+  document.getElementById('st-longest-name').textContent = lp?.display_name ?? '';
+
+  const accent = '#fa6831';
+  const green  = '#3fb950';
+  const blue   = '#58a6ff';
+  const scales = _chartScaleDefaults();
+
+  // Monthly chart
+  if (_chartMonthly) _chartMonthly.destroy();
+  _chartMonthly = _makeChart('chart-monthly', {
+    type: 'bar',
+    data: {
+      labels:   data.by_month.map(m => m.label),
+      datasets: [{ data: data.by_month.map(m => m.count), backgroundColor: accent, borderRadius: 3 }],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales,
+    },
+  });
+
+  // Weekday chart (hours)
+  if (_chartWeekday) _chartWeekday.destroy();
+  _chartWeekday = _makeChart('chart-weekday', {
+    type: 'bar',
+    data: {
+      labels:   data.by_weekday.map(d => d.day),
+      datasets: [{ data: data.by_weekday.map(d => d.hours), backgroundColor: green, borderRadius: 3 }],
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales,
+    },
+  });
+
+  // Duration distribution — horizontal bar
+  if (_chartDuration) _chartDuration.destroy();
+  _chartDuration = _makeChart('chart-duration', {
+    type: 'bar',
+    data: {
+      labels:   data.by_duration.map(b => b.label),
+      datasets: [{ data: data.by_duration.map(b => b.count), backgroundColor: blue, borderRadius: 3 }],
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ..._chartScaleDefaults().x, ticks: { ..._chartScaleDefaults().x.ticks, stepSize: 1 } },
+        y: _chartScaleDefaults().y,
+      },
+    },
+  });
+
+  // Recent prints list
+  const list  = document.getElementById('stats-recent-list');
+  const empty = document.getElementById('stats-no-data');
+  if (!data.recent_prints || data.recent_prints.length === 0) {
+    list.innerHTML = '';
+    empty.classList.remove('hidden');
+  } else {
+    empty.classList.add('hidden');
+    list.innerHTML = data.recent_prints.map(buildStatsRecentItem).join('');
+  }
+}
+
+function buildStatsRecentItem(p) {
+  const name     = esc(p.display_name ?? '(unknown)');
+  const dur      = p.duration_seconds != null ? fmtDuration(p.duration_seconds) : '—';
+  const stateRaw = (p.end_state || 'UNKNOWN').toUpperCase();
+  const badgeCls = printerStateBadgeClass(stateRaw);
+  const dateStr  = p.start_time ? new Date(p.start_time).toLocaleDateString() : '—';
+  return `<div class="stats-recent-item">
+    <span class="stats-recent-name">${name}</span>
+    <span class="stats-recent-date">${dateStr}</span>
+    <span class="stats-recent-dur">${dur}</span>
+    <span class="printer-badge ${badgeCls}">${stateRaw}</span>
+  </div>`;
 }
 
 async function loadPrinterStatus() {

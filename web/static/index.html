@@ -21,6 +21,7 @@
       <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
       <button class="tab-btn" data-tab="recordings">Recordings</button>
+      <button class="tab-btn" data-tab="stats">Stats</button>
       <button class="tab-btn" data-tab="logs">Logs</button>
     </nav>
 
@@ -233,6 +234,56 @@
         </div>
       </section>
 
+      <!-- ── Stats ─────────────────────────────────────────────────── -->
+      <section id="tab-stats" class="tab">
+
+        <div class="stats-summary-row">
+          <div class="stat-card">
+            <span class="stat-card-label">Total Prints</span>
+            <span id="st-total" class="stat-card-value">&#8212;</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card-label">Total Hours</span>
+            <span id="st-hours" class="stat-card-value">&#8212;</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card-label">Avg Duration</span>
+            <span id="st-avg" class="stat-card-value">&#8212;</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-card-label">Longest Print</span>
+            <span id="st-longest" class="stat-card-value">&#8212;</span>
+            <span id="st-longest-name" class="stat-card-sub"></span>
+          </div>
+        </div>
+
+        <div class="stats-charts-row">
+          <div class="stats-chart-card">
+            <h3>Prints per Month</h3>
+            <canvas id="chart-monthly"></canvas>
+          </div>
+          <div class="stats-chart-card">
+            <h3>Hours by Day of Week</h3>
+            <canvas id="chart-weekday"></canvas>
+          </div>
+        </div>
+
+        <div class="stats-chart-card" style="margin-bottom:12px">
+          <h3>Print Duration Distribution</h3>
+          <canvas id="chart-duration"></canvas>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><h2>Recent Prints</h2></div>
+          <div id="stats-recent-list" class="stats-recent-list"></div>
+          <div id="stats-no-data" class="empty-state hidden">
+            <div class="empty-icon">&#128202;</div>
+            <p>No print history yet. Stats will appear after your first recorded print.</p>
+          </div>
+        </div>
+
+      </section>
+
       <!-- ── Logs ────────────────────────────────────────────────── -->
       <section id="tab-logs" class="tab">
         <div class="section-toolbar">
@@ -345,6 +396,7 @@
   <!-- ── Toast ──────────────────────────────────────────────────────────────── -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <script src="vendor/chart.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
