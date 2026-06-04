@@ -35,6 +35,11 @@ from pydantic import BaseModel
 
 app = FastAPI(title="Prusa Camera Manager")
 
+
+@app.on_event("startup")
+def _on_startup():
+    _load_upload_state()
+
 CONFIG_PATH = Path(os.environ.get("CONFIG", "/etc/prusa-cameras/config.yaml"))
 
 # In-memory upload state: filename → {status, pct, url, error}
@@ -158,6 +163,66 @@ def _open_db() -> sqlite3.Connection:
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def _open_db_rw() -> sqlite3.Connection:
+    path = load_config().get("db_path", "/var/lib/prusa-cameras/prusa.db")
+    conn = sqlite3.connect(path, timeout=10)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _migrate_upload_table() -> None:
+    """Add filename column to youtube_uploads if it doesn't exist yet."""
+    try:
+        with _open_db_rw() as conn:
+            conn.execute("ALTER TABLE youtube_uploads ADD COLUMN filename TEXT UNIQUE")
+            conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
+
+def _load_upload_state() -> None:
+    _migrate_upload_table()
+    try:
+        with _open_db() as conn:
+            for row in conn.execute(
+                "SELECT filename, status, url, error FROM youtube_uploads"
+                " WHERE filename IS NOT NULL ORDER BY uploaded_ts"
+            ):
+                _uploads[row["filename"]] = {
+                    "status": row["status"],
+                    "pct": 100 if row["status"] == "done" else 0,
+                    "url": row["url"],
+                    "error": row["error"],
+                }
+    except Exception as exc:
+        logger.warning("Could not load upload state from DB: %s", exc)
+
+
+def _save_upload_entry(filename: str, entry: dict) -> None:
+    try:
+        with _open_db_rw() as conn:
+            conn.execute(
+                """INSERT INTO youtube_uploads (filename, status, url, error, uploaded_ts)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(filename) DO UPDATE SET
+                     status=excluded.status, url=excluded.url,
+                     error=excluded.error, uploaded_ts=excluded.uploaded_ts""",
+                (filename, entry["status"], entry.get("url"), entry.get("error"), int(time.time())),
+            )
+            conn.commit()
+    except Exception as exc:
+        logger.warning("Could not persist upload state to DB: %s", exc)
+
+
+def _delete_upload_entry(filename: str) -> None:
+    try:
+        with _open_db_rw() as conn:
+            conn.execute("DELETE FROM youtube_uploads WHERE filename = ?", (filename,))
+            conn.commit()
+    except Exception as exc:
+        logger.warning("Could not delete upload entry from DB: %s", exc)
 
 
 @app.get("/api/printer/status")
@@ -979,6 +1044,9 @@ def delete_recording(filename: str):
     if not path.exists():
         raise HTTPException(404)
     path.unlink()
+    if filename in _uploads:
+        del _uploads[filename]
+        _delete_upload_entry(filename)
 
 
 @app.post("/api/recordings/{filename}/upload")
@@ -1174,9 +1242,11 @@ def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
                 logger.warning("Playlist insert failed: %s", exc)
 
         _uploads[filename] = {"status": "done", "pct": 100, "url": url, "error": None}
+        _save_upload_entry(filename, _uploads[filename])
     except Exception as exc:
         logger.error("YouTube upload failed for %s: %s", filename, exc, exc_info=True)
         _uploads[filename] = {"status": "error", "pct": 0, "url": None, "error": str(exc)}
+        _save_upload_entry(filename, _uploads[filename])
     finally:
         if remuxed_path and Path(remuxed_path).exists():
             try:

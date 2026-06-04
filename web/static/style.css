@@ -927,15 +927,19 @@ em.muted { font-style: normal; }
 
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
 
-/* Stats break into 3+3 grid at medium widths */
+/* Stats break into 3+3 / 2+2 grids at medium widths */
 @media (max-width: 700px) {
   .printer-stats-row {
     grid-template-columns: repeat(3, 1fr);
   }
-  /* remove right border from last item in each 3-column row */
-  .printer-stat:nth-child(3n) { border-right: none; }
-  /* row separator above items in the second row */
-  .printer-stat:nth-child(n+4) { border-top: 1px solid var(--border); }
+  .printer-stats-row .printer-stat:nth-child(3n) { border-right: none; }
+  .printer-stats-row .printer-stat:nth-child(n+4) { border-top: 1px solid var(--border); }
+
+  .system-stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .system-stats-row .printer-stat:nth-child(2n) { border-right: none; }
+  .system-stats-row .printer-stat:nth-child(n+3) { border-top: 1px solid var(--border); }
 }
 
 @media (max-width: 640px) {

@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS recordings (
 
 CREATE TABLE IF NOT EXISTS youtube_uploads (
     id           INTEGER PRIMARY KEY,
+    filename     TEXT    UNIQUE,
     recording_id TEXT    REFERENCES recordings(id),
     video_id     TEXT,
     url          TEXT,
