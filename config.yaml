@@ -21,7 +21,12 @@ prusalink:
   host: "http://192.168.1.100"
   # PrusaLink API key — find it in printer menu → Settings → Network → PrusaLink API key
   api_key: "REPLACE_WITH_PRUSALINK_API_KEY"
-  poll_interval: 15  # seconds between state polls
+  poll_interval: 10  # seconds between polls (telemetry is written to DB, not proxied live)
+
+# SQLite database — shared between the main service (writer) and web API (reader)
+db_path: "/var/lib/prusa-cameras/prusa.db"
+# Telemetry rows are only written during active prints; age them out after this many days
+telemetry_retention_days: 180
 
 recording:
   output_dir: "/var/lib/prusa-cameras/recordings"

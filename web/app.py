@@ -10,8 +10,8 @@ import json
 import logging
 import os
 import pickle
-import re
 import signal
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -152,6 +152,14 @@ def update_prusalink(body: PrusaLinkBody):
     return cfg["prusalink"]
 
 
+def _open_db() -> sqlite3.Connection:
+    """Open a read-only connection to the shared SQLite database."""
+    path = load_config().get("db_path", "/var/lib/prusa-cameras/prusa.db")
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
 @app.get("/api/printer/status")
 def get_printer_status():
     cfg = load_config()
@@ -160,45 +168,43 @@ def get_printer_status():
     if not pl.get("host") or not pl.get("api_key"):
         return {"configured": False}
 
-    host    = pl["host"].rstrip("/")
-    api_key = pl["api_key"]
-
     try:
-        resp = requests.get(
-            f"{host}/api/v1/status",
-            headers={"X-Api-Key": api_key},
-            timeout=5,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as exc:
-        return {"configured": True, "reachable": False, "error": str(exc), "printer": None, "job": None}
+        with _open_db() as conn:
+            row = conn.execute(
+                "SELECT * FROM printer_telemetry ORDER BY ts DESC LIMIT 1"
+            ).fetchone()
+    except Exception:
+        # DB doesn't exist yet (main service never started)
+        return {"configured": True, "reachable": False, "error": "No data yet — is the main service running?", "printer": None, "job": None}
 
-    printer = data.get("printer") or {}
-    job     = data.get("job") or None
+    if not row:
+        return {"configured": True, "reachable": False, "error": "Waiting for first poll — printer may be idle", "printer": None, "job": None}
+
+    age = int(time.time()) - row["ts"]
+    reachable = age < 60  # stale after 60s (main service polls every 10s)
 
     return {
         "configured": True,
-        "reachable":  True,
-        "error":      None,
+        "reachable":  reachable,
+        "error":      f"Data is {age}s old — main service may be down" if not reachable else None,
         "printer": {
-            "state":          printer.get("state", "UNKNOWN"),
-            "temp_nozzle":    printer.get("temp_nozzle"),
-            "target_nozzle":  printer.get("target_nozzle"),
-            "temp_bed":       printer.get("temp_bed"),
-            "target_bed":     printer.get("target_bed"),
-            "axis_z":         printer.get("axis_z"),
-            "flow":           printer.get("flow"),
-            "speed":          printer.get("speed"),
-            "fan_hotend":     printer.get("fan_hotend"),
-            "fan_print":      printer.get("fan_print"),
+            "state":         row["state"],
+            "temp_nozzle":   row["temp_nozzle"],
+            "target_nozzle": row["target_nozzle"],
+            "temp_bed":      row["temp_bed"],
+            "target_bed":    row["target_bed"],
+            "axis_z":        row["axis_z"],
+            "flow":          row["flow"],
+            "speed":         row["speed"],
+            "fan_hotend":    row["fan_hotend"],
+            "fan_print":     row["fan_print"],
         },
         "job": {
-            "progress":        job.get("progress"),
-            "time_remaining":  job.get("time_remaining"),
-            "time_printing":   job.get("time_printing"),
-            "display_name":    job.get("display_name"),
-        } if job else None,
+            "progress":       row["job_progress"],
+            "time_remaining": row["job_time_remaining"],
+            "time_printing":  row["job_time_printing"],
+            "display_name":   row["job_display_name"],
+        } if row["job_display_name"] is not None else None,
     }
 
 
@@ -225,63 +231,56 @@ def get_system_status():
 
 @app.get("/api/stats")
 def get_stats():
-    cfg = load_config()
-    rec_dir = Path(cfg.get("recording", {}).get("output_dir", "/var/lib/prusa-cameras/recordings"))
-    events_path = Path(cfg.get("stats", {}).get("events_file",
-                       "/var/lib/prusa-cameras/print_events.json"))
+    try:
+        conn = _open_db()
+    except Exception:
+        conn = None
 
-    # Load persisted events from print_events.json
-    events: list[dict] = []
-    if events_path.exists():
-        try:
-            events = json.loads(events_path.read_text())
-        except Exception:
-            pass
+    # ── Summary ───────────────────────────────────────────────────────────────────
+    if conn:
+        with conn:
+            summary = conn.execute(
+                "SELECT COUNT(*) AS cnt, COALESCE(SUM(duration_seconds), 0) AS total_secs "
+                "FROM print_jobs WHERE end_ts IS NOT NULL"
+            ).fetchone()
+            longest_row = conn.execute(
+                "SELECT duration_seconds, display_name FROM print_jobs "
+                "WHERE end_ts IS NOT NULL ORDER BY duration_seconds DESC LIMIT 1"
+            ).fetchone()
+            month_rows = conn.execute(
+                "SELECT strftime('%Y-%m', datetime(start_ts,'unixepoch')) AS month, "
+                "COUNT(*) AS count, COALESCE(SUM(duration_seconds),0) AS total_secs "
+                "FROM print_jobs WHERE end_ts IS NOT NULL "
+                "GROUP BY month ORDER BY month"
+            ).fetchall()
+            wd_rows = conn.execute(
+                "SELECT CAST(strftime('%w', datetime(start_ts,'unixepoch')) AS INTEGER) AS wd, "
+                "COUNT(*) AS count, COALESCE(SUM(duration_seconds),0) AS total_secs "
+                "FROM print_jobs WHERE end_ts IS NOT NULL GROUP BY wd"
+            ).fetchall()
+            dur_rows = conn.execute(
+                "SELECT duration_seconds FROM print_jobs WHERE end_ts IS NOT NULL"
+            ).fetchall()
+            recent_rows = conn.execute(
+                "SELECT id, display_name, start_ts, end_ts, duration_seconds, end_state "
+                "FROM print_jobs WHERE end_ts IS NOT NULL "
+                "ORDER BY start_ts DESC LIMIT 15"
+            ).fetchall()
+    else:
+        summary = {"cnt": 0, "total_secs": 0}
+        longest_row = month_rows = wd_rows = dur_rows = recent_rows = []
 
-    # Supplement with recording files for prints before the logger existed.
-    # Group by timestamp — multiple cameras start simultaneously so share the same ts.
-    known_starts: set[str] = {e["start_time"][:16] for e in events if e.get("start_time")}
-    rec_groups: dict[str, dict] = {}  # ts_str → synthetic event
-
-    if rec_dir.exists():
-        for f in rec_dir.glob("*.mp4"):
-            m = re.search(r"_(print|manual)_(\d{8}_\d{6})$", f.stem)
-            if not m or m.group(1) != "print":
-                continue
-            ts_str = m.group(2)
-            try:
-                start_dt = datetime.strptime(ts_str, "%Y%m%d_%H%M%S")
-            except ValueError:
-                continue
-            start_iso = start_dt.isoformat(timespec="seconds")
-            if start_iso[:16] in known_starts:
-                continue
-            if ts_str not in rec_groups:
-                end_dt = datetime.fromtimestamp(f.stat().st_mtime)
-                rec_groups[ts_str] = {
-                    "id":               f"rec_{ts_str}",
-                    "start_time":       start_iso,
-                    "end_time":         end_dt.isoformat(timespec="seconds"),
-                    "duration_seconds": max(0, int((end_dt - start_dt).total_seconds())),
-                    "display_name":     None,
-                    "end_state":        "FINISHED",
-                    "recordings":       [],
-                }
-                known_starts.add(start_iso[:16])
-            rec_groups[ts_str]["recordings"].append(str(f))
-
-    all_events = events + list(rec_groups.values())
-    all_events.sort(key=lambda e: e.get("start_time") or "")
-
-    # ── Aggregates ────────────────────────────────────────────────────────────────
-    total_prints = len(all_events)
-    total_secs   = sum(e.get("duration_seconds") or 0 for e in all_events)
+    total_prints = summary["cnt"] if conn else 0
+    total_secs   = summary["total_secs"] if conn else 0
     total_hours  = round(total_secs / 3600, 1)
     avg_hours    = round(total_hours / total_prints, 1) if total_prints else 0.0
 
-    longest = max(all_events, key=lambda e: e.get("duration_seconds") or 0, default=None)
+    longest = {
+        "duration_seconds": longest_row["duration_seconds"],
+        "display_name":     longest_row["display_name"],
+    } if longest_row else None
 
-    # by_month — last 13 calendar months
+    # ── By month — last 13 calendar months, fill gaps ─────────────────────────────
     now = datetime.now()
     months = []
     for i in range(12, -1, -1):
@@ -289,69 +288,69 @@ def get_stats():
         month = (now.month - 1 - i) % 12 + 1
         months.append((f"{year:04d}-{month:02d}", datetime(year, month, 1)))
 
-    month_counts: dict[str, dict] = {m[0]: {"count": 0, "secs": 0} for m in months}
-    for e in all_events:
-        st = e.get("start_time")
-        if not st:
-            continue
-        key = st[:7]  # "YYYY-MM"
-        if key in month_counts:
-            month_counts[key]["count"] += 1
-            month_counts[key]["secs"]  += e.get("duration_seconds") or 0
-
+    month_map = {r["month"]: r for r in month_rows} if conn else {}
     by_month = []
     for key, dt in months:
-        d = month_counts[key]
+        r = month_map.get(key)
         by_month.append({
             "month": key,
             "label": dt.strftime("%b '%y"),
-            "count": d["count"],
-            "hours": round(d["secs"] / 3600, 1),
+            "count": r["count"] if r else 0,
+            "hours": round((r["total_secs"] if r else 0) / 3600, 1),
         })
 
-    # by_weekday — Mon=0 … Sun=6
+    # ── By weekday — SQLite %w: 0=Sun; remap to Mon=0 ────────────────────────────
+    # Mon=0…Sun=6  →  SQLite wd: Mon=2,Tue=3,Wed=4,Thu=5,Fri=6,Sat=7(→0),Sun=1(→0)
+    # Remap: Mon=2→0, Tue=3→1, Wed=4→2, Thu=5→3, Fri=6→4, Sat=0→5, Sun=1→6
     day_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-    wd_data = [{"day": d, "count": 0, "secs": 0} for d in day_names]
-    for e in all_events:
-        st = e.get("start_time")
-        if not st:
-            continue
-        try:
-            wd = datetime.fromisoformat(st).weekday()
-            wd_data[wd]["count"] += 1
-            wd_data[wd]["secs"]  += e.get("duration_seconds") or 0
-        except ValueError:
-            pass
-    by_weekday = [{"day": d["day"], "count": d["count"], "hours": round(d["secs"] / 3600, 1)}
-                  for d in wd_data]
+    wd_map = {r["wd"]: r for r in wd_rows} if conn else {}
+    # SQLite %w: Sun=0, Mon=1, Tue=2, Wed=3, Thu=4, Fri=5, Sat=6
+    sqlite_to_mon0 = {1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 0: 6}
+    wd_accum = [{"count": 0, "secs": 0} for _ in range(7)]
+    for sqlite_wd, r in wd_map.items():
+        idx = sqlite_to_mon0.get(sqlite_wd, 0)
+        wd_accum[idx]["count"] += r["count"]
+        wd_accum[idx]["secs"]  += r["total_secs"]
+    by_weekday = [
+        {"day": day_names[i], "count": wd_accum[i]["count"],
+         "hours": round(wd_accum[i]["secs"] / 3600, 1)}
+        for i in range(7)
+    ]
 
-    # by_duration — bucket distribution
+    # ── Duration distribution ─────────────────────────────────────────────────────
     buckets = [("<1h", 0, 3600), ("1–2h", 3600, 7200), ("2–4h", 7200, 14400),
                ("4–8h", 14400, 28800), (">8h", 28800, None)]
     bucket_counts = {label: 0 for label, *_ in buckets}
-    for e in all_events:
-        d = e.get("duration_seconds") or 0
+    for r in (dur_rows or []):
+        d = r["duration_seconds"] or 0
         for label, lo, hi in buckets:
             if d >= lo and (hi is None or d < hi):
                 bucket_counts[label] += 1
                 break
     by_duration = [{"label": label, "count": bucket_counts[label]} for label, *_ in buckets]
 
-    # recent prints — last 15, newest first
-    recent_prints = list(reversed(all_events[-15:]))
+    # ── Recent prints ─────────────────────────────────────────────────────────────
+    recent_prints = [
+        {
+            "id":               r["id"],
+            "display_name":     r["display_name"],
+            "start_time":       datetime.fromtimestamp(r["start_ts"]).isoformat(timespec="seconds"),
+            "end_time":         datetime.fromtimestamp(r["end_ts"]).isoformat(timespec="seconds") if r["end_ts"] else None,
+            "duration_seconds": r["duration_seconds"],
+            "end_state":        r["end_state"],
+        }
+        for r in (recent_rows or [])
+    ]
 
     return {
-        "total_prints":    total_prints,
-        "total_hours":     total_hours,
+        "total_prints":       total_prints,
+        "total_hours":        total_hours,
         "avg_duration_hours": avg_hours,
-        "longest_print":   {
-            "duration_seconds": longest.get("duration_seconds"),
-            "display_name":     longest.get("display_name"),
-        } if longest else None,
-        "by_month":        by_month,
-        "by_weekday":      by_weekday,
-        "by_duration":     by_duration,
-        "recent_prints":   recent_prints,
+        "longest_print":      longest,
+        "by_month":           by_month,
+        "by_weekday":         by_weekday,
+        "by_duration":        by_duration,
+        "recent_prints":      recent_prints,
     }
 
 

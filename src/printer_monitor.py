@@ -1,24 +1,28 @@
-"""Polls the local PrusaLink API and fires callbacks on print-state transitions."""
+"""Polls the local PrusaLink API, writes telemetry to DB, and fires callbacks on state transitions."""
 
 import logging
 import threading
+import uuid
 from enum import Enum
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import requests
+
+if TYPE_CHECKING:
+    from database import Database
 
 logger = logging.getLogger(__name__)
 
 
 class PrinterState(str, Enum):
-    IDLE = "IDLE"
-    PRINTING = "PRINTING"
-    PAUSED = "PAUSED"
-    FINISHED = "FINISHED"
-    STOPPED = "STOPPED"
-    ERROR = "ERROR"
+    IDLE      = "IDLE"
+    PRINTING  = "PRINTING"
+    PAUSED    = "PAUSED"
+    FINISHED  = "FINISHED"
+    STOPPED   = "STOPPED"
+    ERROR     = "ERROR"
     ATTENTION = "ATTENTION"
-    UNKNOWN = "UNKNOWN"
+    UNKNOWN   = "UNKNOWN"
 
 
 # States that mean "a print is in progress"
@@ -32,24 +36,25 @@ class PrinterMonitor:
     def __init__(
         self,
         cfg: dict,
-        on_print_start: Callable[[PrinterState, str | None], None] | None = None,
-        on_print_end: Callable[[PrinterState], None] | None = None,
+        db: "Database",
+        on_print_start: Callable[[PrinterState, str], None] | None = None,
+        on_print_end: Callable[[PrinterState, str], None] | None = None,
     ):
         self._host: str = cfg["host"].rstrip("/")
         self._api_key: str = cfg["api_key"]
-        self._interval: int = cfg.get("poll_interval", 15)
+        self._interval: int = cfg.get("poll_interval", 10)
+        self._db = db
         self.on_print_start = on_print_start
-        self.on_print_end = on_print_end
+        self.on_print_end   = on_print_end
 
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._last_state = PrinterState.UNKNOWN
-        self._last_display_name: str | None = None
+        self._last_state   = PrinterState.UNKNOWN
         self._print_active = False
+        self._current_job_id: str | None = None
+        self._last_snapshot: dict | None = None  # last telemetry row inserted
 
-    # ------------------------------------------------------------------
-    # Public interface
-    # ------------------------------------------------------------------
+    # ── Public interface ──────────────────────────────────────────────────────────
 
     def start(self) -> None:
         self._thread = threading.Thread(
@@ -63,37 +68,78 @@ class PrinterMonitor:
         if self._thread:
             self._thread.join(timeout=30)
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    # ── Internal helpers ──────────────────────────────────────────────────────────
 
     def _loop(self) -> None:
         while not self._stop.is_set():
             try:
-                state = self._fetch_state()
-                self._handle_transition(state)
+                snapshot = self._fetch_snapshot()
+                state    = PrinterState(snapshot["state"])
+
+                if state in ACTIVE:
+                    if self._snapshot_changed(snapshot):
+                        self._db.insert_telemetry(snapshot)
+                        self._last_snapshot = snapshot
+                else:
+                    # Reset so the next print starts with a fresh comparison baseline.
+                    self._last_snapshot = None
+
+                self._handle_transition(state, snapshot)
+
             except requests.exceptions.ConnectionError:
                 logger.warning("PrusaLink unreachable at %s", self._host)
             except Exception as exc:
                 logger.warning("Printer monitor error: %s", exc)
+
             self._stop.wait(self._interval)
 
-    def _fetch_state(self) -> PrinterState:
+    def _fetch_snapshot(self) -> dict:
         resp = requests.get(
             f"{self._host}/api/v1/status",
             headers={"X-Api-Key": self._api_key},
             timeout=10,
         )
         resp.raise_for_status()
-        data = resp.json()
-        raw = data.get("printer", {}).get("state", "").upper()
-        self._last_display_name = (data.get("job") or {}).get("display_name")
-        try:
-            return PrinterState(raw)
-        except ValueError:
-            return PrinterState.UNKNOWN
+        data    = resp.json()
+        printer = data.get("printer") or {}
+        job     = data.get("job") or {}
 
-    def _handle_transition(self, state: PrinterState) -> None:
+        raw = printer.get("state", "").upper()
+        try:
+            state = PrinterState(raw).value
+        except ValueError:
+            state = PrinterState.UNKNOWN.value
+
+        return {
+            "state":              state,
+            "temp_nozzle":        printer.get("temp_nozzle"),
+            "target_nozzle":      printer.get("target_nozzle"),
+            "temp_bed":           printer.get("temp_bed"),
+            "target_bed":         printer.get("target_bed"),
+            "axis_z":             printer.get("axis_z"),
+            "speed":              printer.get("speed"),
+            "flow":               printer.get("flow"),
+            "fan_hotend":         printer.get("fan_hotend"),
+            "fan_print":          printer.get("fan_print"),
+            "job_progress":       job.get("progress"),
+            "job_time_remaining": job.get("time_remaining"),
+            "job_time_printing":  job.get("time_printing"),
+            "job_display_name":   job.get("display_name"),
+        }
+
+    def _snapshot_changed(self, new: dict) -> bool:
+        if self._last_snapshot is None:
+            return True
+        return any(
+            new.get(k) != self._last_snapshot.get(k)
+            for k in (
+                "state", "temp_nozzle", "target_nozzle", "temp_bed", "target_bed",
+                "axis_z", "speed", "flow", "fan_hotend", "fan_print",
+                "job_progress", "job_time_remaining", "job_time_printing", "job_display_name",
+            )
+        )
+
+    def _handle_transition(self, state: PrinterState, snapshot: dict) -> None:
         if state == self._last_state:
             return
 
@@ -102,12 +148,17 @@ class PrinterMonitor:
 
         if state in ACTIVE and not self._print_active:
             self._print_active = True
+            job_id = str(uuid.uuid4())
+            self._current_job_id = job_id
+            self._db.begin_print_job(job_id, snapshot.get("job_display_name"))
             if self.on_print_start:
-                self.on_print_start(state, self._last_display_name)
+                self.on_print_start(state, job_id)
 
         elif self._print_active and state not in ACTIVE:
             # Fire on any exit from active — printers often skip FINISHED and go
             # straight to IDLE, so we can't gate this on TERMINAL states alone.
             self._print_active = False
+            job_id = self._current_job_id
+            self._current_job_id = None
             if self.on_print_end:
-                self.on_print_end(state)
+                self.on_print_end(state, job_id)

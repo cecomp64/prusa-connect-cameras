@@ -11,7 +11,7 @@ from pathlib import Path
 import yaml
 
 from camera import Camera
-from print_logger import PrintLogger
+from database import Database
 from printer_monitor import PrinterMonitor, PrinterState
 from recorder import Recorder
 from youtube_uploader import YouTubeUploader
@@ -31,6 +31,14 @@ def load_config(path: str = "config.yaml") -> dict:
         return yaml.safe_load(fh)
 
 
+def _purge_loop(db: Database, stop_event: threading.Event) -> None:
+    """Purge old telemetry once per day."""
+    stop_event.wait(86400)
+    while not stop_event.is_set():
+        db.purge_old_telemetry()
+        stop_event.wait(86400)
+
+
 def main() -> None:
     cfg_path = os.environ.get("CONFIG", "config.yaml")
     cfg = load_config(cfg_path)
@@ -41,19 +49,22 @@ def main() -> None:
     yt_cfg = cfg.get("youtube", {})
     uploader = YouTubeUploader(yt_cfg) if yt_cfg.get("enabled") else None
 
-    events_path = Path(cfg.get("stats", {}).get("events_file",
-                       "/var/lib/prusa-cameras/print_events.json"))
-    print_logger = PrintLogger(events_path)
+    db_path = Path(cfg.get("db_path", "/var/lib/prusa-cameras/prusa.db"))
+    retention = cfg.get("telemetry_retention_days", 180)
+    db = Database(db_path, telemetry_retention_days=retention)
+    db.purge_old_telemetry()
 
-    def on_print_start(state: PrinterState, display_name: str | None = None) -> None:
-        logger.info("Print started (%s) — %s", state.value, display_name or "unknown file")
-        print_logger.on_print_start(display_name)
+    threading.Thread(target=_purge_loop, args=(db, _shutdown), daemon=True,
+                     name="telemetry-purge").start()
+
+    def on_print_start(state: PrinterState, job_id: str) -> None:
+        logger.info("Print started (%s) — job %s", state.value, job_id)
         recorder.start_all(label="print")
 
-    def on_print_end(state: PrinterState) -> None:
+    def on_print_end(state: PrinterState, job_id: str) -> None:
         logger.info("Print ended (%s) — stopping recordings", state.value)
         files = recorder.stop_all()
-        print_logger.on_print_end(state.value, [str(f) for f in files])
+        db.end_print_job(job_id, state.value, files)
 
         if uploader and files:
             timestamp = time.strftime("%Y-%m-%d %H:%M")
@@ -68,7 +79,11 @@ def main() -> None:
     monitor: PrinterMonitor | None = None
     pl_cfg = cfg.get("prusalink", {})
     if pl_cfg.get("api_key") and pl_cfg.get("host"):
-        monitor = PrinterMonitor(pl_cfg, on_print_start=on_print_start, on_print_end=on_print_end)
+        monitor = PrinterMonitor(
+            pl_cfg, db=db,
+            on_print_start=on_print_start,
+            on_print_end=on_print_end,
+        )
     else:
         logger.warning("PrusaLink not configured — recording will not start/stop automatically")
 
@@ -79,6 +94,7 @@ def main() -> None:
             cam.stop()
         if monitor:
             monitor.stop()
+        db.close()
         _shutdown.set()
 
     signal.signal(signal.SIGTERM, _shutdown_handler)
