@@ -181,7 +181,7 @@ def get_printer_status():
         return {"configured": True, "reachable": False, "error": "Waiting for first poll — printer may be idle", "printer": None, "job": None}
 
     age = int(time.time()) - row["ts"]
-    reachable = age < 60  # stale after 60s (main service polls every 10s)
+    reachable = age < 360  # stale after 6 min (idle heartbeat writes every 5 min)
 
     return {
         "configured": True,

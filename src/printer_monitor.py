@@ -2,6 +2,7 @@
 
 import logging
 import threading
+import time
 import uuid
 from enum import Enum
 from typing import TYPE_CHECKING, Callable
@@ -53,6 +54,7 @@ class PrinterMonitor:
         self._print_active = False
         self._current_job_id: str | None = None
         self._last_snapshot: dict | None = None  # last telemetry row inserted
+        self._last_idle_write: float = 0.0       # timestamp of last non-active write
 
     # ── Public interface ──────────────────────────────────────────────────────────
 
@@ -81,8 +83,14 @@ class PrinterMonitor:
                         self._db.insert_telemetry(snapshot)
                         self._last_snapshot = snapshot
                 else:
-                    # Reset so the next print starts with a fresh comparison baseline.
-                    self._last_snapshot = None
+                    # Write on state change OR as a heartbeat every 5 minutes so the
+                    # web API always has a fresh row even when the printer is idle.
+                    state_changed = snapshot["state"] != (self._last_snapshot or {}).get("state")
+                    since_last = time.time() - self._last_idle_write
+                    if state_changed or since_last >= 300:
+                        self._db.insert_telemetry(snapshot)
+                        self._last_snapshot = snapshot
+                        self._last_idle_write = time.time()
 
                 self._handle_transition(state, snapshot)
 
