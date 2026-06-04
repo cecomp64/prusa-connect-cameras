@@ -238,15 +238,29 @@ def get_printer_status():
             row = conn.execute(
                 "SELECT * FROM printer_status WHERE id = 1"
             ).fetchone()
+            if row is None:
+                # printer_status table exists but has no row yet — fall back to
+                # the historical telemetry table (e.g. main service not restarted yet)
+                row = conn.execute(
+                    "SELECT * FROM printer_telemetry ORDER BY ts DESC LIMIT 1"
+                ).fetchone()
     except Exception:
-        # DB doesn't exist yet (main service never started)
-        return {"configured": True, "reachable": False, "error": "No data yet — is the main service running?", "printer": None, "job": None}
+        # DB doesn't exist yet, or printer_status table not created yet
+        try:
+            with _open_db() as conn:
+                row = conn.execute(
+                    "SELECT * FROM printer_telemetry ORDER BY ts DESC LIMIT 1"
+                ).fetchone()
+        except Exception:
+            return {"configured": True, "reachable": False, "error": "No data yet — is the main service running?", "printer": None, "job": None}
 
     if not row:
         return {"configured": True, "reachable": False, "error": "Waiting for first poll — printer may be idle", "printer": None, "job": None}
 
     age = int(time.time()) - row["ts"]
     reachable = age < 60  # stale after 60s (main service polls every 10s)
+
+    has_job = row["job_progress"] is not None or row["job_time_printing"] is not None
 
     return {
         "configured": True,
@@ -269,7 +283,7 @@ def get_printer_status():
             "time_remaining": row["job_time_remaining"],
             "time_printing":  row["job_time_printing"],
             "display_name":   row["job_display_name"],
-        } if row["job_display_name"] is not None else None,
+        } if has_job else None,
     }
 
 
