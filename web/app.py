@@ -14,10 +14,12 @@ import signal
 import subprocess
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
 
+import psutil
 import requests
 import yaml
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
@@ -195,6 +197,27 @@ def get_printer_status():
             "time_printing":   job.get("time_printing"),
             "display_name":    job.get("display_name"),
         } if job else None,
+    }
+
+
+@app.get("/api/system/status")
+def get_system_status():
+    cpu_temp = None
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp") as f:
+            cpu_temp = round(int(f.read().strip()) / 1000, 1)
+    except Exception:
+        pass
+
+    mem = psutil.virtual_memory()
+    uptime_secs = int(time.time() - psutil.boot_time())
+
+    return {
+        "cpu_temp":  cpu_temp,
+        "cpu_usage": psutil.cpu_percent(interval=0.1),
+        "mem_used":  round(mem.used / 1024 / 1024),
+        "mem_total": round(mem.total / 1024 / 1024),
+        "uptime":    uptime_secs,
     }
 
 

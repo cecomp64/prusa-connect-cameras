@@ -644,7 +644,7 @@ em.muted { font-style: normal; }
 
 .printer-stats-row {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   border-bottom: 1px solid var(--border);
 }
 
@@ -780,6 +780,20 @@ em.muted { font-style: normal; }
   text-align: center;
 }
 .printer-files-err { color: var(--red); }
+
+/* ── System stats card ───────────────────────────────────────────────────────── */
+.system-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+  margin-bottom: 16px;
+}
+
+.system-stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
 
 /* ── Upload status line ───────────────────────────────────────────────────────── */
 .upload-status {

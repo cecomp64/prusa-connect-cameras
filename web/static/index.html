@@ -49,8 +49,7 @@
               <div class="printer-stat"><span class="printer-stat-label">Z Height</span><span id="ps-z" class="printer-stat-value">&#8212;</span></div>
               <div class="printer-stat"><span class="printer-stat-label">Speed</span><span id="ps-speed" class="printer-stat-value">&#8212;</span></div>
               <div class="printer-stat"><span class="printer-stat-label">Flow</span><span id="ps-flow" class="printer-stat-value">&#8212;</span></div>
-              <div class="printer-stat"><span class="printer-stat-label">Fan Hotend</span><span id="ps-fan-hotend" class="printer-stat-value">&#8212;</span></div>
-              <div class="printer-stat"><span class="printer-stat-label">Fan Print</span><span id="ps-fan-print" class="printer-stat-value">&#8212;</span></div>
+              <div class="printer-stat"><span class="printer-stat-label">Fans</span><span id="ps-fan-hotend" class="printer-stat-value">&#8212;</span><span id="ps-fan-print" class="printer-stat-target"></span></div>
             </div>
             <div id="printer-job-panel" class="printer-job-panel hidden">
               <div class="printer-progress-bar-wrap">
@@ -64,6 +63,15 @@
             </div>
           </div>
         </div>
+        <div id="system-card" class="system-card">
+          <div class="system-stats-row">
+            <div class="printer-stat"><span class="printer-stat-label">CPU Temp</span><span id="sys-cpu-temp" class="printer-stat-value">&#8212;</span></div>
+            <div class="printer-stat"><span class="printer-stat-label">CPU Usage</span><span id="sys-cpu-usage" class="printer-stat-value">&#8212;</span></div>
+            <div class="printer-stat"><span class="printer-stat-label">Memory</span><span id="sys-mem-used" class="printer-stat-value">&#8212;</span><span id="sys-mem-total" class="printer-stat-target"></span></div>
+            <div class="printer-stat"><span class="printer-stat-label">Uptime</span><span id="sys-uptime" class="printer-stat-value">&#8212;</span></div>
+          </div>
+        </div>
+
         <div id="printer-controls" class="printer-controls hidden"></div>
 
         <!-- Printer file browser -->

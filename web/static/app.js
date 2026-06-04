@@ -7,6 +7,7 @@ let logWs = null;
 let toastTimer = null;
 let printerPollTimer = null;
 let lastPrinterData  = null;
+let systemPollTimer  = null;
 let recordingPollTimer = null;
 let recordingCameras = new Set(); // names of cameras currently recording
 let recordingsRefreshTimer = null;
@@ -102,6 +103,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadDashboard();
   startPrinterPoll();
   startRecordingPoll();
+  startSystemPoll();
 });
 
 // ── Tab routing ───────────────────────────────────────────────────────────────
@@ -111,8 +113,8 @@ function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t =>
     t.classList.toggle('active', t.id === `tab-${name}`));
 
-  if (name === 'dashboard') { loadDashboard(); startPrinterPoll(); startRecordingPoll(); }
-  else                        { stopPrinterPoll(); stopRecordingPoll(); }
+  if (name === 'dashboard') { loadDashboard(); startPrinterPoll(); startRecordingPoll(); startSystemPoll(); }
+  else                        { stopPrinterPoll(); stopRecordingPoll(); stopSystemPoll(); }
   if (name === 'settings')   { loadCameraList(); loadPrusaLink(); loadYouTube(); loadRecordingConfig(); }
   if (name === 'recordings') { loadRecordings(); startRecordingsRefresh(); }
   else                         stopRecordingsRefresh();
@@ -208,6 +210,7 @@ function buildCameraCard(cam) {
 async function loadDashboard() {
   loadCameraGrid();
   await loadPrinterStatus();
+  loadSystemStatus();
 }
 
 function startRecordingPoll() {
@@ -248,6 +251,29 @@ function startPrinterPoll() {
 
 function stopPrinterPoll() {
   if (printerPollTimer !== null) { clearInterval(printerPollTimer); printerPollTimer = null; }
+}
+
+function startSystemPoll() {
+  stopSystemPoll();
+  systemPollTimer = setInterval(loadSystemStatus, 30_000);
+}
+function stopSystemPoll() {
+  if (systemPollTimer !== null) { clearInterval(systemPollTimer); systemPollTimer = null; }
+}
+
+async function loadSystemStatus() {
+  let data;
+  try { data = await api('/api/system/status'); } catch { return; }
+
+  const fmtTemp = v => v != null ? `${v}°C` : '—';
+  const fmtPct  = v => v != null ? `${v.toFixed(0)}%` : '—';
+  const fmtMB   = v => v != null ? `${v} MB` : '—';
+
+  document.getElementById('sys-cpu-temp').textContent  = fmtTemp(data.cpu_temp);
+  document.getElementById('sys-cpu-usage').textContent = fmtPct(data.cpu_usage);
+  document.getElementById('sys-mem-used').textContent  = fmtMB(data.mem_used);
+  document.getElementById('sys-mem-total').textContent = data.mem_total != null ? `/ ${data.mem_total} MB` : '';
+  document.getElementById('sys-uptime').textContent    = data.uptime != null ? fmtDuration(data.uptime) : '—';
 }
 
 async function loadPrinterStatus() {
@@ -333,7 +359,7 @@ function renderPrinterLive(data, stale) {
   document.getElementById('ps-speed').textContent = p.speed     != null ? `${p.speed}%`               : '—';
   document.getElementById('ps-flow').textContent  = p.flow      != null ? `${p.flow}%`                : '—';
   document.getElementById('ps-fan-hotend').textContent = p.fan_hotend != null ? `${p.fan_hotend} rpm` : '—';
-  document.getElementById('ps-fan-print').textContent  = p.fan_print  != null ? `${p.fan_print} rpm`  : '—';
+  document.getElementById('ps-fan-print').textContent  = p.fan_print  != null ? `/ ${p.fan_print} rpm` : '';
 
   const jobPanel = document.getElementById('printer-job-panel');
   if (isActive && job) {
