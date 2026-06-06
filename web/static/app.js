@@ -278,11 +278,14 @@ async function loadSystemStatus() {
   const fmtTemp = v => v != null ? `${v}°C` : '—';
   const fmtPct  = v => v != null ? `${v.toFixed(0)}%` : '—';
   const fmtMB   = v => v != null ? `${v} MB` : '—';
+  const fmtGB   = v => v != null ? `${v} GB` : '—';
 
   document.getElementById('sys-cpu-temp').textContent  = fmtTemp(data.cpu_temp);
   document.getElementById('sys-cpu-usage').textContent = fmtPct(data.cpu_usage);
   document.getElementById('sys-mem-used').textContent  = fmtMB(data.mem_used);
   document.getElementById('sys-mem-total').textContent = data.mem_total != null ? `/ ${data.mem_total} MB` : '';
+  document.getElementById('sys-disk-free').textContent = fmtGB(data.disk_free);
+  document.getElementById('sys-disk-total').textContent = data.disk_total != null ? `/ ${data.disk_total} GB` : '';
   document.getElementById('sys-uptime').textContent    = data.uptime != null ? fmtDuration(data.uptime) : '—';
 }
 

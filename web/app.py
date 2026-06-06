@@ -266,14 +266,17 @@ def get_system_status():
         pass
 
     mem = psutil.virtual_memory()
+    disk = psutil.disk_usage('/')
     uptime_secs = int(time.time() - psutil.boot_time())
 
     return {
-        "cpu_temp":  cpu_temp,
-        "cpu_usage": psutil.cpu_percent(interval=0.1),
-        "mem_used":  round(mem.used / 1024 / 1024),
-        "mem_total": round(mem.total / 1024 / 1024),
-        "uptime":    uptime_secs,
+        "cpu_temp":   cpu_temp,
+        "cpu_usage":  psutil.cpu_percent(interval=0.1),
+        "mem_used":   round(mem.used / 1024 / 1024),
+        "mem_total":  round(mem.total / 1024 / 1024),
+        "disk_free":  round(disk.free / 1024 / 1024 / 1024, 1),
+        "disk_total": round(disk.total / 1024 / 1024 / 1024, 1),
+        "uptime":     uptime_secs,
     }
 
 
