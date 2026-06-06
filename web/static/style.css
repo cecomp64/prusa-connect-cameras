@@ -1019,21 +1019,6 @@ em.muted { font-style: normal; }
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
 
 
-/* Stats break into 3+3 / 2+2 grids at medium widths */
-@media (max-width: 700px) {
-  .printer-stats-row {
-    grid-template-columns: repeat(3, 1fr);
-  }
-  .printer-stats-row .printer-stat:nth-child(3n) { border-right: none; }
-  .printer-stats-row .printer-stat:nth-child(n+4) { border-top: 1px solid var(--border); }
-
-  .system-stats-row {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .system-stats-row .printer-stat:nth-child(2n) { border-right: none; }
-  .system-stats-row .printer-stat:nth-child(n+3) { border-top: 1px solid var(--border); }
-}
-
 @media (max-width: 640px) {
   .camera-grid { grid-template-columns: 1fr; }
   .camera-card--portrait .stream-wrap { aspect-ratio: 9 / 16; }
@@ -1046,6 +1031,16 @@ em.muted { font-style: normal; }
   .printer-stat-value { font-size: 13px; }
   .printer-filename   { max-width: 180px; }
   .printer-job-thumbnail { width: 76px; height: 57px; }
+  .printer-stats-row {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .printer-stats-row .printer-stat:nth-child(3n) { border-right: none; }
+  .printer-stats-row .printer-stat:nth-child(n+4) { border-top: 1px solid var(--border); }
+  .system-stats-row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .system-stats-row .printer-stat:nth-child(2n) { border-right: none; }
+  .system-stats-row .printer-stat:nth-child(n+3) { border-top: 1px solid var(--border); }
   .stats-summary-row              { grid-template-columns: repeat(2, 1fr); }
   .stats-charts-row               { grid-template-columns: 1fr; }
   .stats-charts-row--3            { grid-template-columns: 1fr; }
