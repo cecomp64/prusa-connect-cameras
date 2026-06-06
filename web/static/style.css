@@ -846,6 +846,7 @@ em.muted { font-style: normal; }
 
 .stats-charts-row--3 {
   grid-template-columns: repeat(3, 1fr);
+  margin-top: 24px;
 }
 
 .stats-chart-card {
@@ -965,6 +966,10 @@ em.muted { font-style: normal; }
 }
 
 /* ── Responsive ──────────────────────────────────────────────────────────────── */
+
+@media (max-width: 960px) {
+  .stats-charts-row--3 { grid-template-columns: 1fr; }
+}
 
 /* Stats break into 3+3 / 2+2 grids at medium widths */
 @media (max-width: 700px) {
