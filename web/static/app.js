@@ -182,7 +182,7 @@ async function loadCameraGrid() {
 
 function buildCameraCard(cam) {
   const card = document.createElement('div');
-  card.className = 'camera-card';
+  card.className = `camera-card${cam.orientation === 'portrait' ? ' camera-card--portrait' : ''}`;
   card.dataset.cam = cam.name;
 
   const isRecording = recordingCameras.has(cam.name);
@@ -719,6 +719,7 @@ function openModal(cam) {
     form.elements.token.value             = cam.token || '';
     form.elements.fingerprint.value       = cam.fingerprint || '';
     form.elements.snapshot_interval.value = cam.snapshot_interval ?? 10;
+    form.elements.orientation.value       = cam.orientation || 'landscape';
     preview.classList.remove('hidden');
     loadPreviewImage(cam.name);
   } else {
@@ -753,6 +754,7 @@ async function saveCamera() {
     token:             form.elements.token.value.trim(),
     fingerprint:       form.elements.fingerprint.value.trim(),
     snapshot_interval: parseInt(form.elements.snapshot_interval.value) || 10,
+    orientation:       form.elements.orientation.value || 'landscape',
   };
 
   if (!body.name || !body.rtsp_url || !body.token) {

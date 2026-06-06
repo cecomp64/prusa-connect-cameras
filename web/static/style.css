@@ -193,13 +193,18 @@ main {
 }
 .camera-card:hover { border-color: var(--border-2); }
 
-/* 16:9 wrapper */
+/* 16:9 wrapper (landscape default) */
 .stream-wrap {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #000;
   overflow: hidden;
+}
+
+/* Portrait cameras: taller-than-wide card */
+.camera-card--portrait .stream-wrap {
+  aspect-ratio: 9 / 16;
 }
 
 .stream-wrap iframe {

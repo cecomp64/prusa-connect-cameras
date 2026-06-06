@@ -69,6 +69,7 @@ class CameraBody(BaseModel):
     fingerprint: str = ""
     webrtc_url: str = ""
     snapshot_interval: int = 10
+    orientation: str = "landscape"
 
 
 class PrusaLinkBody(BaseModel):
