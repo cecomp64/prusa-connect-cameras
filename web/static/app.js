@@ -628,8 +628,10 @@ function renderPrinterLive(data, stale) {
     document.getElementById('ps-progress').textContent  = `${pct.toFixed(1)}%`;
     document.getElementById('ps-elapsed').textContent   = job.time_printing  != null ? fmtDuration(job.time_printing)  : '—';
     document.getElementById('ps-remaining').textContent = job.time_remaining != null ? `${fmtDuration(job.time_remaining)} remaining` : '—';
+    document.getElementById('ps-job-name').textContent  = job.display_name ?? '';
     jobPanel.classList.remove('hidden');
   } else {
+    document.getElementById('ps-job-name').textContent = '';
     jobPanel.classList.add('hidden');
   }
 
