@@ -83,6 +83,16 @@ CREATE TABLE IF NOT EXISTS youtube_uploads (
     error        TEXT,
     uploaded_ts  INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS system_metrics (
+    id        INTEGER PRIMARY KEY,
+    ts        INTEGER NOT NULL,
+    cpu_temp  REAL,
+    cpu_usage REAL,
+    mem_used  INTEGER,
+    mem_total INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_sm_ts ON system_metrics(ts DESC);
 """
 
 _TELEMETRY_COLUMNS = (
@@ -139,14 +149,23 @@ class Database:
             self._conn.commit()
         logger.info("Print job started: %s (%s)", job_id, display_name)
 
-    def end_print_job(self, job_id: str, end_state: str, recording_paths: list[str]) -> None:
+    def end_print_job(
+        self,
+        job_id: str,
+        end_state: str,
+        recording_paths: list[str],
+        printer_duration_seconds: int | None = None,
+    ) -> None:
         now = int(time.time())
         with self._lock:
             row = self._conn.execute(
                 "SELECT start_ts FROM print_jobs WHERE id = ?", (job_id,)
             ).fetchone()
-            start_ts = row["start_ts"] if row else now
-            duration = now - start_ts
+            if printer_duration_seconds is not None and printer_duration_seconds > 0:
+                duration = printer_duration_seconds
+            else:
+                start_ts = row["start_ts"] if row else now
+                duration = now - start_ts
 
             self._conn.execute(
                 "UPDATE print_jobs SET end_ts=?, duration_seconds=?, end_state=? WHERE id=?",
@@ -185,6 +204,23 @@ class Database:
         except sqlite3.IntegrityError:
             pass  # UNIQUE violation: already recorded
 
+    # ── System metrics ────────────────────────────────────────────────────────────
+
+    def insert_system_metrics(
+        self,
+        cpu_temp: float | None,
+        cpu_usage: float,
+        mem_used: int,
+        mem_total: int,
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO system_metrics (ts, cpu_temp, cpu_usage, mem_used, mem_total) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (int(time.time()), cpu_temp, cpu_usage, mem_used, mem_total),
+            )
+            self._conn.commit()
+
     # ── Maintenance ───────────────────────────────────────────────────────────────
 
     def purge_old_telemetry(self) -> int:
@@ -192,6 +228,9 @@ class Database:
         with self._lock:
             cur = self._conn.execute(
                 "DELETE FROM printer_telemetry WHERE ts < ?", (cutoff,)
+            )
+            self._conn.execute(
+                "DELETE FROM system_metrics WHERE ts < ?", (cutoff,)
             )
             self._conn.commit()
         n = cur.rowcount

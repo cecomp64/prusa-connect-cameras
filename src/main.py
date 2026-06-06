@@ -8,6 +8,7 @@ import threading
 import time
 from pathlib import Path
 
+import psutil
 import yaml
 
 from camera import Camera
@@ -39,6 +40,28 @@ def _purge_loop(db: Database, stop_event: threading.Event) -> None:
         stop_event.wait(86400)
 
 
+def _system_metrics_loop(db: Database, stop_event: threading.Event) -> None:
+    """Collect CPU and memory stats every 60 seconds."""
+    while not stop_event.is_set():
+        try:
+            cpu_temp = None
+            try:
+                with open("/sys/class/thermal/thermal_zone0/temp") as f:
+                    cpu_temp = round(int(f.read().strip()) / 1000, 1)
+            except Exception:
+                pass
+            mem = psutil.virtual_memory()
+            db.insert_system_metrics(
+                cpu_temp=cpu_temp,
+                cpu_usage=psutil.cpu_percent(interval=None),
+                mem_used=round(mem.used / 1024 / 1024),
+                mem_total=round(mem.total / 1024 / 1024),
+            )
+        except Exception as exc:
+            logger.warning("System metrics collection error: %s", exc)
+        stop_event.wait(60)
+
+
 def main() -> None:
     cfg_path = os.environ.get("CONFIG", "config.yaml")
     cfg = load_config(cfg_path)
@@ -56,15 +79,17 @@ def main() -> None:
 
     threading.Thread(target=_purge_loop, args=(db, _shutdown), daemon=True,
                      name="telemetry-purge").start()
+    threading.Thread(target=_system_metrics_loop, args=(db, _shutdown), daemon=True,
+                     name="system-metrics").start()
 
     def on_print_start(state: PrinterState, job_id: str) -> None:
         logger.info("Print started (%s) — job %s", state.value, job_id)
         recorder.start_all(label="print")
 
-    def on_print_end(state: PrinterState, job_id: str) -> None:
+    def on_print_end(state: PrinterState, job_id: str, printer_duration: int | None) -> None:
         logger.info("Print ended (%s) — stopping recordings", state.value)
         files = recorder.stop_all()
-        db.end_print_job(job_id, state.value, files)
+        db.end_print_job(job_id, state.value, files, printer_duration)
 
         if uploader and files:
             timestamp = time.strftime("%Y-%m-%d %H:%M")

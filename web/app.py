@@ -433,6 +433,82 @@ def get_stats():
     }
 
 
+@app.get("/api/stats/system")
+def get_system_stats():
+    try:
+        conn = _open_db()
+    except Exception:
+        conn = None
+
+    # System metrics — last 24h bucketed into 5-minute averages
+    metrics = []
+    if conn:
+        cutoff = int(time.time()) - 86400
+        with conn:
+            rows = conn.execute(
+                "SELECT (ts / 300) * 300 AS bucket_ts, "
+                "AVG(cpu_temp) AS cpu_temp, "
+                "AVG(cpu_usage) AS cpu_usage, "
+                "AVG(CASE WHEN mem_total > 0 "
+                "    THEN CAST(mem_used AS REAL) / mem_total * 100 ELSE NULL END) AS mem_pct "
+                "FROM system_metrics WHERE ts >= ? "
+                "GROUP BY bucket_ts ORDER BY bucket_ts",
+                (cutoff,),
+            ).fetchall()
+            for r in rows:
+                metrics.append({
+                    "ts":        r["bucket_ts"],
+                    "cpu_temp":  round(r["cpu_temp"], 1) if r["cpu_temp"] is not None else None,
+                    "cpu_usage": round(r["cpu_usage"], 1) if r["cpu_usage"] is not None else None,
+                    "mem_pct":   round(r["mem_pct"], 1) if r["mem_pct"] is not None else None,
+                })
+
+    # Events — derive from print_jobs + youtube_uploads
+    events: list[dict] = []
+    if conn:
+        with conn:
+            job_rows = conn.execute(
+                "SELECT display_name, start_ts, end_ts, end_state, duration_seconds "
+                "FROM print_jobs ORDER BY start_ts DESC LIMIT 100"
+            ).fetchall()
+            for r in job_rows:
+                name = r["display_name"] or "(unknown)"
+                if r["start_ts"]:
+                    events.append({"ts": r["start_ts"], "type": "print_start", "label": f"Print started: {name}"})
+                if r["end_ts"]:
+                    state = r["end_state"] or "?"
+                    dur = ""
+                    if r["duration_seconds"]:
+                        h, m = divmod(r["duration_seconds"] // 60, 60)
+                        dur = f" ({h}h {m:02d}m)" if h else f" ({m}m)"
+                    events.append({
+                        "ts": r["end_ts"], "type": "print_end", "state": state,
+                        "label": f"Print {state.lower()}: {name}{dur}",
+                    })
+            try:
+                upload_rows = conn.execute(
+                    "SELECT filename, status, uploaded_ts FROM youtube_uploads "
+                    "WHERE status IN ('done', 'error') ORDER BY uploaded_ts DESC LIMIT 30"
+                ).fetchall()
+                for r in upload_rows:
+                    fname = r["filename"] or "(unknown)"
+                    etype = "upload_done" if r["status"] == "done" else "upload_error"
+                    label = f"Upload done: {fname}" if r["status"] == "done" else f"Upload failed: {fname}"
+                    events.append({"ts": r["uploaded_ts"], "type": etype, "label": label})
+            except Exception:
+                pass
+
+    events.sort(key=lambda e: e["ts"], reverse=True)
+    events = events[:50]
+    for e in events:
+        try:
+            e["time"] = datetime.fromtimestamp(e["ts"]).isoformat(timespec="seconds")
+        except Exception:
+            e["time"] = None
+
+    return {"metrics": metrics, "events": events}
+
+
 def _pl_config() -> tuple[str, str]:
     cfg = load_config()
     pl = cfg.get("prusalink", {})

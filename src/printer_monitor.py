@@ -39,7 +39,7 @@ class PrinterMonitor:
         cfg: dict,
         db: "Database",
         on_print_start: Callable[[PrinterState, str], None] | None = None,
-        on_print_end: Callable[[PrinterState, str], None] | None = None,
+        on_print_end: Callable[[PrinterState, str, int | None], None] | None = None,
     ):
         self._host: str = cfg["host"].rstrip("/")
         self._api_key: str = cfg["api_key"]
@@ -55,6 +55,7 @@ class PrinterMonitor:
         self._current_job_id: str | None = None
         self._last_snapshot: dict | None = None  # last telemetry row inserted
         self._last_idle_write: float = 0.0       # timestamp of last non-active write
+        self._last_job_time_printing: int | None = None  # printer's own active-time counter
 
     # ── Public interface ──────────────────────────────────────────────────────────
 
@@ -80,6 +81,9 @@ class PrinterMonitor:
                 self._db.update_printer_status(snapshot)
 
                 if state in ACTIVE:
+                    t = snapshot.get("job_time_printing")
+                    if t is not None:
+                        self._last_job_time_printing = t
                     if self._snapshot_changed(snapshot):
                         self._db.insert_telemetry(snapshot)
                         self._last_snapshot = snapshot
@@ -169,5 +173,7 @@ class PrinterMonitor:
             self._print_active = False
             job_id = self._current_job_id
             self._current_job_id = None
+            printer_duration = self._last_job_time_printing
+            self._last_job_time_printing = None
             if self.on_print_end:
-                self.on_print_end(state, job_id)
+                self.on_print_end(state, job_id, printer_duration)

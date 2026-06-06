@@ -843,6 +843,10 @@ em.muted { font-style: normal; }
   margin-bottom: 12px;
 }
 
+.stats-charts-row--3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
 .stats-chart-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -857,6 +861,11 @@ em.muted { font-style: normal; }
   letter-spacing: .5px;
   color: var(--text-muted);
   margin: 0 0 14px;
+}
+
+.stats-chart-card--line .chart-line-wrap {
+  position: relative;
+  height: 140px;
 }
 
 .stats-recent-list { display: flex; flex-direction: column; }
@@ -875,6 +884,35 @@ em.muted { font-style: normal; }
 .stats-recent-date { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 .stats-recent-dur  { font-size: 12px; color: var(--text); white-space: nowrap; }
 .stats-recent-empty { padding: 16px; font-size: 13px; color: var(--text-muted); text-align: center; }
+
+.stats-events-list { display: flex; flex-direction: column; }
+
+.stats-event-item {
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.stats-event-item:last-child { border-bottom: none; }
+
+.stats-event-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  justify-self: center;
+}
+.stats-event-dot--print-start    { background: #3fb950; }
+.stats-event-dot--print-finished { background: #3fb950; }
+.stats-event-dot--print-end      { background: var(--text-muted); }
+.stats-event-dot--print-failed   { background: #f85149; }
+.stats-event-dot--upload-done    { background: #58a6ff; }
+.stats-event-dot--upload-error   { background: #f85149; }
+
+.stats-event-label { font-family: var(--mono); font-size: 12px; }
+.stats-event-time  { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
 
 /* ── Upload status line ───────────────────────────────────────────────────────── */
 .upload-status {
@@ -952,4 +990,7 @@ em.muted { font-style: normal; }
   .printer-stat       { padding: 8px 10px; }
   .printer-stat-value { font-size: 13px; }
   .printer-filename   { max-width: 180px; }
+  .stats-summary-row              { grid-template-columns: repeat(2, 1fr); }
+  .stats-charts-row               { grid-template-columns: 1fr; }
+  .stats-charts-row--3            { grid-template-columns: 1fr; }
 }

@@ -11,6 +11,9 @@ let systemPollTimer  = null;
 let _chartMonthly    = null;
 let _chartWeekday    = null;
 let _chartDuration   = null;
+let _chartCpuTemp    = null;
+let _chartCpuUsage   = null;
+let _chartMemUsage   = null;
 let recordingPollTimer = null;
 let recordingCameras = new Set(); // names of cameras currently recording
 let recordingsRefreshTimer = null;
@@ -379,6 +382,8 @@ async function loadStats() {
     empty.classList.add('hidden');
     list.innerHTML = data.recent_prints.map(buildStatsRecentItem).join('');
   }
+
+  loadSystemStats();
 }
 
 function buildStatsRecentItem(p) {
@@ -392,6 +397,115 @@ function buildStatsRecentItem(p) {
     <span class="stats-recent-date">${dateStr}</span>
     <span class="stats-recent-dur">${dur}</span>
     <span class="printer-badge ${badgeCls}">${stateRaw}</span>
+  </div>`;
+}
+
+async function loadSystemStats() {
+  let data;
+  try { data = await api('/api/stats/system'); } catch { return; }
+
+  const orange = '#fa6831';
+  const blue   = '#58a6ff';
+  const green  = '#3fb950';
+
+  function fmtBucketLabel(ts) {
+    const d = new Date(ts * 1000);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  const labels    = data.metrics.map(m => fmtBucketLabel(m.ts));
+  const xScale    = {
+    ..._chartScaleDefaults().x,
+    ticks: { ..._chartScaleDefaults().x.ticks, maxTicksLimit: 8, maxRotation: 0 },
+  };
+
+  function lineDataset(color, key) {
+    return {
+      data: data.metrics.map(m => m[key]),
+      borderColor: color,
+      backgroundColor: color + '22',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: true,
+    };
+  }
+
+  function lineOpts(unit) {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: xScale,
+        y: {
+          ..._chartScaleDefaults().y,
+          ticks: {
+            ..._chartScaleDefaults().y.ticks,
+            callback: v => v != null ? v + unit : '',
+          },
+        },
+      },
+    };
+  }
+
+  const hasCpuTemp = data.metrics.some(m => m.cpu_temp != null);
+
+  if (hasCpuTemp) {
+    if (_chartCpuTemp) _chartCpuTemp.destroy();
+    _chartCpuTemp = _makeChart('chart-cpu-temp', {
+      type: 'line',
+      data: { labels, datasets: [lineDataset(orange, 'cpu_temp')] },
+      options: lineOpts('°C'),
+    });
+  }
+
+  if (_chartCpuUsage) _chartCpuUsage.destroy();
+  _chartCpuUsage = _makeChart('chart-cpu-usage', {
+    type: 'line',
+    data: { labels, datasets: [lineDataset(blue, 'cpu_usage')] },
+    options: lineOpts('%'),
+  });
+
+  if (_chartMemUsage) _chartMemUsage.destroy();
+  _chartMemUsage = _makeChart('chart-mem-usage', {
+    type: 'line',
+    data: { labels, datasets: [lineDataset(green, 'mem_pct')] },
+    options: lineOpts('%'),
+  });
+
+  // Events list
+  const evList  = document.getElementById('stats-events-list');
+  const evEmpty = document.getElementById('stats-no-events');
+  if (!data.events || data.events.length === 0) {
+    evList.innerHTML = '';
+    evEmpty.classList.remove('hidden');
+  } else {
+    evEmpty.classList.add('hidden');
+    evList.innerHTML = data.events.map(buildEventItem).join('');
+  }
+}
+
+function buildEventItem(e) {
+  const timeStr = e.time
+    ? new Date(e.time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '—';
+  let dotCls = 'stats-event-dot--print-end';
+  if (e.type === 'print_start') {
+    dotCls = 'stats-event-dot--print-start';
+  } else if (e.type === 'print_end') {
+    const s = (e.state || '').toUpperCase();
+    if (s === 'FINISHED') dotCls = 'stats-event-dot--print-finished';
+    else if (s === 'ERROR' || s === 'STOPPED') dotCls = 'stats-event-dot--print-failed';
+  } else if (e.type === 'upload_done') {
+    dotCls = 'stats-event-dot--upload-done';
+  } else if (e.type === 'upload_error') {
+    dotCls = 'stats-event-dot--upload-error';
+  }
+  return `<div class="stats-event-item">
+    <span class="stats-event-dot ${dotCls}"></span>
+    <span class="stats-event-label">${esc(e.label)}</span>
+    <span class="stats-event-time">${esc(timeStr)}</span>
   </div>`;
 }
 

@@ -282,6 +282,30 @@
           </div>
         </div>
 
+        <div class="stats-charts-row stats-charts-row--3">
+          <div class="stats-chart-card stats-chart-card--line">
+            <h3>CPU Temperature &mdash; 24h</h3>
+            <div class="chart-line-wrap"><canvas id="chart-cpu-temp"></canvas></div>
+          </div>
+          <div class="stats-chart-card stats-chart-card--line">
+            <h3>CPU Utilization &mdash; 24h</h3>
+            <div class="chart-line-wrap"><canvas id="chart-cpu-usage"></canvas></div>
+          </div>
+          <div class="stats-chart-card stats-chart-card--line">
+            <h3>Memory Utilization &mdash; 24h</h3>
+            <div class="chart-line-wrap"><canvas id="chart-mem-usage"></canvas></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><h2>Recent Events</h2></div>
+          <div id="stats-events-list" class="stats-events-list"></div>
+          <div id="stats-no-events" class="empty-state hidden">
+            <div class="empty-icon">&#128203;</div>
+            <p>No events recorded yet.</p>
+          </div>
+        </div>
+
       </section>
 
       <!-- ── Logs ────────────────────────────────────────────────── -->
