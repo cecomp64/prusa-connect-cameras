@@ -39,7 +39,7 @@ class PrinterMonitor:
         cfg: dict,
         db: "Database",
         on_print_start: Callable[[PrinterState, str], None] | None = None,
-        on_print_end: Callable[[PrinterState, str, int | None], None] | None = None,
+        on_print_end: Callable[[PrinterState, str, str | None, int | None], None] | None = None,
     ):
         self._host: str = cfg["host"].rstrip("/")
         self._api_key: str = cfg["api_key"]
@@ -129,6 +129,15 @@ class PrinterMonitor:
         except ValueError:
             state = PrinterState.UNKNOWN.value
 
+        # Try display_name at the top level first, then fall back to the nested
+        # file object which some firmware versions use instead.
+        file_info = job.get("file") or {}
+        display_name = (
+            job.get("display_name")
+            or file_info.get("display_name")
+            or file_info.get("name")
+        )
+
         return {
             "state":              state,
             "temp_nozzle":        printer.get("temp_nozzle"),
@@ -143,7 +152,7 @@ class PrinterMonitor:
             "job_progress":       job.get("progress"),
             "job_time_remaining": job.get("time_remaining"),
             "job_time_printing":  job.get("time_printing"),
-            "job_display_name":   job.get("display_name"),
+            "job_display_name":   display_name,
         }
 
     def _snapshot_changed(self, new: dict) -> bool:
@@ -180,9 +189,10 @@ class PrinterMonitor:
             # straight to IDLE, so we can't gate this on TERMINAL states alone.
             self._print_active = False
             job_id = self._current_job_id
+            job_name = self._current_job_name
             self._current_job_id = None
             self._current_job_name = None
             printer_duration = self._last_job_time_printing
             self._last_job_time_printing = None
             if self.on_print_end:
-                self.on_print_end(state, job_id, printer_duration)
+                self.on_print_end(state, job_id, job_name, printer_duration)

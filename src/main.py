@@ -86,7 +86,7 @@ def main() -> None:
         logger.info("Print started (%s) — job %s", state.value, job_id)
         recorder.start_all(label="print")
 
-    def on_print_end(state: PrinterState, job_id: str, printer_duration: int | None) -> None:
+    def on_print_end(state: PrinterState, job_id: str, job_name: str | None, printer_duration: int | None) -> None:
         logger.info("Print ended (%s) — stopping recordings", state.value)
         files = recorder.stop_all()
         db.end_print_job(job_id, state.value, files, printer_duration)
@@ -95,7 +95,7 @@ def main() -> None:
             timestamp = time.strftime("%Y-%m-%d %H:%M")
             for path in files:
                 filename = Path(path).name
-                title = f"3D Print — {timestamp} ({state.value})"
+                title = f"{job_name} — {timestamp}" if job_name else f"3D Print — {timestamp} ({state.value})"
                 db.set_upload_state(filename, "pending")
                 try:
                     url = uploader.upload(path, title=title)

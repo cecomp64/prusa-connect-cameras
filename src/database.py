@@ -150,10 +150,10 @@ class Database:
         logger.info("Print job started: %s (%s)", job_id, display_name)
 
     def update_print_job_name(self, job_id: str, display_name: str) -> None:
-        """Fill in display_name once PrusaLink reports it (often not available at job start)."""
+        """Backfill or correct display_name once PrusaLink reports it."""
         with self._lock:
             self._conn.execute(
-                "UPDATE print_jobs SET display_name = ? WHERE id = ? AND display_name IS NULL",
+                "UPDATE print_jobs SET display_name = ? WHERE id = ?",
                 (display_name, job_id),
             )
             self._conn.commit()
