@@ -340,6 +340,10 @@ def get_stats():
             dur_rows = conn.execute(
                 "SELECT duration_seconds FROM print_jobs WHERE end_ts IS NOT NULL"
             ).fetchall()
+            outcome_rows = conn.execute(
+                "SELECT COALESCE(end_state,'UNKNOWN') AS state, COUNT(*) AS count "
+                "FROM print_jobs WHERE end_ts IS NOT NULL GROUP BY state"
+            ).fetchall()
             recent_rows = conn.execute(
                 "SELECT pj.id, "
                 "COALESCE(pj.display_name, "
@@ -353,7 +357,7 @@ def get_stats():
             ).fetchall()
     else:
         summary = {"cnt": 0, "total_secs": 0}
-        longest_row = month_rows = wd_rows = dur_rows = recent_rows = []
+        longest_row = month_rows = wd_rows = dur_rows = recent_rows = outcome_rows = []
 
     total_prints = summary["cnt"] if conn else 0
     total_secs   = summary["total_secs"] if conn else 0
@@ -414,6 +418,15 @@ def get_stats():
                 break
     by_duration = [{"label": label, "count": bucket_counts[label]} for label, *_ in buckets]
 
+    # ── By outcome ────────────────────────────────────────────────────────────────
+    outcome_order = ["FINISHED", "STOPPED", "ERROR", "UNKNOWN"]
+    outcome_map = {r["state"]: r["count"] for r in (outcome_rows or [])}
+    by_outcome = [
+        {"state": s, "count": outcome_map.get(s, 0)}
+        for s in outcome_order
+        if outcome_map.get(s, 0) > 0
+    ]
+
     # ── Recent prints ─────────────────────────────────────────────────────────────
     recent_prints = [
         {
@@ -435,6 +448,7 @@ def get_stats():
         "by_month":           by_month,
         "by_weekday":         by_weekday,
         "by_duration":        by_duration,
+        "by_outcome":         by_outcome,
         "recent_prints":      recent_prints,
     }
 

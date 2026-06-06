@@ -872,6 +872,24 @@ em.muted { font-style: normal; }
   overflow: hidden;
 }
 
+.stats-charts-row--duration {
+  grid-template-columns: 3fr 2fr;
+}
+
+.stats-chart-card--outcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.chart-outcome-wrap {
+  position: relative;
+  width: 100%;
+  max-width: 220px;
+  aspect-ratio: 1;
+}
+
 .stats-recent-list { display: flex; flex-direction: column; }
 
 .stats-recent-item {
@@ -998,4 +1016,5 @@ em.muted { font-style: normal; }
   .stats-summary-row              { grid-template-columns: repeat(2, 1fr); }
   .stats-charts-row               { grid-template-columns: 1fr; }
   .stats-charts-row--3            { grid-template-columns: 1fr; }
+  .stats-charts-row--duration     { grid-template-columns: 1fr; }
 }

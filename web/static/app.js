@@ -11,6 +11,7 @@ let systemPollTimer  = null;
 let _chartMonthly    = null;
 let _chartWeekday    = null;
 let _chartDuration   = null;
+let _chartOutcome    = null;
 let _chartCpuTemp    = null;
 let _chartCpuUsage   = null;
 let _chartMemUsage   = null;
@@ -371,6 +372,27 @@ async function loadStats() {
       },
     },
   });
+
+  // Outcome doughnut
+  if (_chartOutcome) _chartOutcome.destroy();
+  if (data.by_outcome && data.by_outcome.length > 0) {
+    const outcomeColors = { FINISHED: green, STOPPED: '#e3b341', ERROR: '#f85149', UNKNOWN: '#6e7681' };
+    _chartOutcome = _makeChart('chart-outcome', {
+      type: 'doughnut',
+      data: {
+        labels:   data.by_outcome.map(o => o.state.charAt(0) + o.state.slice(1).toLowerCase()),
+        datasets: [{ data: data.by_outcome.map(o => o.count), backgroundColor: data.by_outcome.map(o => outcomeColors[o.state] ?? '#6e7681'), borderWidth: 0 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        cutout: '65%',
+        plugins: {
+          legend: { display: true, position: 'bottom', labels: { color: _cssVar('--text-muted'), boxWidth: 10, padding: 10, font: { size: 11 } } },
+        },
+      },
+    });
+  }
 
   // Recent prints list
   const list  = document.getElementById('stats-recent-list');
