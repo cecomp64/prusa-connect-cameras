@@ -213,6 +213,27 @@ class Database:
         except sqlite3.IntegrityError:
             pass  # UNIQUE violation: already recorded
 
+    # ── YouTube uploads ───────────────────────────────────────────────────────────
+
+    def set_upload_state(
+        self,
+        filename: str,
+        status: str,
+        url: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        with self._lock:
+            self._conn.execute(
+                """INSERT INTO youtube_uploads (filename, status, url, error, uploaded_ts)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(filename) DO UPDATE SET
+                     status=excluded.status, url=excluded.url,
+                     error=excluded.error, uploaded_ts=excluded.uploaded_ts""",
+                (filename, status, url, error, int(time.time())),
+            )
+            self._conn.commit()
+        logger.info("Upload state: %s → %s", filename, status)
+
     # ── System metrics ────────────────────────────────────────────────────────────
 
     def insert_system_metrics(

@@ -94,11 +94,15 @@ def main() -> None:
         if uploader and files:
             timestamp = time.strftime("%Y-%m-%d %H:%M")
             for path in files:
+                filename = Path(path).name
                 title = f"3D Print — {timestamp} ({state.value})"
+                db.set_upload_state(filename, "pending")
                 try:
                     url = uploader.upload(path, title=title)
+                    db.set_upload_state(filename, "done", url=url)
                     logger.info("YouTube: %s", url)
                 except Exception as exc:
+                    db.set_upload_state(filename, "error", error=str(exc))
                     logger.error("YouTube upload failed for %s: %s", path, exc)
 
     monitor: PrinterMonitor | None = None

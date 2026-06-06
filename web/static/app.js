@@ -18,6 +18,7 @@ let _chartMemUsage   = null;
 let recordingPollTimer = null;
 let recordingCameras = new Set(); // names of cameras currently recording
 let recordingsRefreshTimer = null;
+let statsRefreshTimer = null;
 let lastRecordingsKey = null;
 let printerConfirmPending = null; // { label, fn } while awaiting inline confirmation
 let printerFilesOpen = false;
@@ -125,7 +126,8 @@ function switchTab(name) {
   if (name === 'settings')   { loadCameraList(); loadPrusaLink(); loadYouTube(); loadRecordingConfig(); }
   if (name === 'recordings') { loadRecordings(); startRecordingsRefresh(); }
   else                         stopRecordingsRefresh();
-  if (name === 'stats')      loadStats();
+  if (name === 'stats')      { loadStats(); startStatsRefresh(); }
+  else                         stopStatsRefresh();
   if (name === 'logs')       startLogStream();
 }
 
@@ -987,6 +989,15 @@ function startRecordingsRefresh() {
 function stopRecordingsRefresh() {
   if (recordingsRefreshTimer !== null) { clearInterval(recordingsRefreshTimer); recordingsRefreshTimer = null; }
   lastRecordingsKey = null;
+}
+
+function startStatsRefresh() {
+  stopStatsRefresh();
+  statsRefreshTimer = setInterval(loadStats, 30_000);
+}
+
+function stopStatsRefresh() {
+  if (statsRefreshTimer !== null) { clearInterval(statsRefreshTimer); statsRefreshTimer = null; }
 }
 
 async function startManualRecording(cameraName) {
