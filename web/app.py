@@ -496,6 +496,27 @@ def get_system_stats():
                     events.append({"ts": r["uploaded_ts"], "type": etype, "label": label})
             except Exception:
                 pass
+            try:
+                rec_rows = conn.execute(
+                    "SELECT camera_safe_name, start_ts, end_ts FROM recordings "
+                    "WHERE start_ts IS NOT NULL OR end_ts IS NOT NULL "
+                    "ORDER BY COALESCE(end_ts, start_ts) DESC LIMIT 100"
+                ).fetchall()
+                for r in rec_rows:
+                    cam = (r["camera_safe_name"] or "camera").replace("_", " ")
+                    if r["start_ts"]:
+                        events.append({"ts": r["start_ts"], "type": "recording_start",
+                                        "label": f"Recording started: {cam}"})
+                    if r["end_ts"]:
+                        dur = ""
+                        if r["start_ts"] and r["end_ts"] > r["start_ts"]:
+                            secs = r["end_ts"] - r["start_ts"]
+                            h, m = divmod(secs // 60, 60)
+                            dur = f" ({h}h {m:02d}m)" if h else f" ({m}m)"
+                        events.append({"ts": r["end_ts"], "type": "recording_stop",
+                                        "label": f"Recording stopped: {cam}{dur}"})
+            except Exception:
+                pass
 
     events.sort(key=lambda e: e["ts"], reverse=True)
     events = events[:50]

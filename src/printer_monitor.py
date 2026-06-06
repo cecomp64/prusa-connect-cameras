@@ -39,7 +39,7 @@ class PrinterMonitor:
         cfg: dict,
         db: "Database",
         on_print_start: Callable[[PrinterState, str], None] | None = None,
-        on_print_end: Callable[[PrinterState, str, str | None, int | None], None] | None = None,
+        on_print_end: Callable[[PrinterState, str | None, str | None, int | None], None] | None = None,
     ):
         self._host: str = cfg["host"].rstrip("/")
         self._api_key: str = cfg["api_key"]
@@ -57,6 +57,24 @@ class PrinterMonitor:
         self._last_snapshot: dict | None = None  # last telemetry row inserted
         self._last_idle_write: float = 0.0       # timestamp of last non-active write
         self._last_job_time_printing: int | None = None  # printer's own active-time counter
+        self._pending_resume = False  # True when we restored an active job from DB
+
+        # Restore state from DB so a service restart doesn't look like a fresh start.
+        open_job = db.get_open_print_job()
+        if open_job:
+            last_state_str = db.get_last_printer_state()
+            try:
+                self._last_state = PrinterState(last_state_str) if last_state_str else PrinterState.UNKNOWN
+            except ValueError:
+                self._last_state = PrinterState.UNKNOWN
+            self._print_active    = True
+            self._current_job_id   = open_job["id"]
+            self._current_job_name = open_job["display_name"]
+            self._pending_resume   = True
+            logger.info(
+                "Restored active print job %s (last state: %s)",
+                open_job["id"], self._last_state.value,
+            )
 
     # ── Public interface ──────────────────────────────────────────────────────────
 
@@ -102,6 +120,15 @@ class PrinterMonitor:
                         self._db.insert_telemetry(snapshot)
                         self._last_snapshot = snapshot
                         self._last_idle_write = time.time()
+
+                # On the first poll after restoring an active job from DB, start
+                # recording if the print is still going; otherwise let
+                # _handle_transition close out the job normally.
+                if self._pending_resume:
+                    self._pending_resume = False
+                    if state in ACTIVE and self.on_print_start:
+                        logger.info("Resuming recording for print job %s", self._current_job_id)
+                        self.on_print_start(state, self._current_job_id)
 
                 self._handle_transition(state, snapshot)
 

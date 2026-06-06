@@ -138,6 +138,29 @@ class Database:
             )
             self._conn.commit()
 
+    # ── Startup state restoration ─────────────────────────────────────────────────
+
+    def get_last_printer_state(self) -> str | None:
+        """Return the most recently recorded printer state string, or None."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT state FROM printer_status WHERE id = 1"
+            ).fetchone()
+            if not row:
+                row = self._conn.execute(
+                    "SELECT state FROM printer_telemetry ORDER BY ts DESC LIMIT 1"
+                ).fetchone()
+        return row["state"] if row else None
+
+    def get_open_print_job(self) -> dict | None:
+        """Return the most recent print job with no end_ts, or None."""
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id, display_name FROM print_jobs WHERE end_ts IS NULL "
+                "ORDER BY start_ts DESC LIMIT 1"
+            ).fetchone()
+        return {"id": row["id"], "display_name": row["display_name"]} if row else None
+
     # ── Print jobs ────────────────────────────────────────────────────────────────
 
     def begin_print_job(self, job_id: str, display_name: str | None) -> None:
