@@ -180,7 +180,7 @@ main {
 /* ── Camera grid ─────────────────────────────────────────────────────────────── */
 .camera-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 16px;
 }
 
@@ -202,10 +202,6 @@ main {
   overflow: hidden;
 }
 
-/* Portrait cameras: taller-than-wide card */
-.camera-card--portrait .stream-wrap {
-  aspect-ratio: 9 / 16;
-}
 
 .stream-wrap iframe {
   width: 100%;
@@ -1040,6 +1036,7 @@ em.muted { font-style: normal; }
 
 @media (max-width: 640px) {
   .camera-grid { grid-template-columns: 1fr; }
+  .camera-card--portrait .stream-wrap { aspect-ratio: 9 / 16; }
   .settings-grid { grid-template-columns: 1fr; }
   header { padding: 0 12px; }
   .tab { padding: 12px; }
