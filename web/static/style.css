@@ -854,6 +854,7 @@ em.muted { font-style: normal; }
   border: 1px solid var(--border);
   border-radius: var(--r);
   padding: 16px 20px;
+  min-width: 0;
 }
 
 .stats-chart-card h3 {
@@ -868,6 +869,7 @@ em.muted { font-style: normal; }
 .stats-chart-card--line .chart-line-wrap {
   position: relative;
   height: 140px;
+  overflow: hidden;
 }
 
 .stats-recent-list { display: flex; flex-direction: column; }
