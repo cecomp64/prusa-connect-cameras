@@ -129,14 +129,21 @@ class PrinterMonitor:
         except ValueError:
             state = PrinterState.UNKNOWN.value
 
-        # Try display_name at the top level first, then fall back to the nested
-        # file object which some firmware versions use instead.
-        file_info = job.get("file") or {}
-        display_name = (
-            job.get("display_name")
-            or file_info.get("display_name")
-            or file_info.get("name")
-        )
+        # /api/v1/status never includes the filename. Fetch /api/v1/job once per
+        # print job (when we don't have a name yet) to get file.display_name.
+        display_name = self._current_job_name
+        if job.get("id") and not display_name:
+            try:
+                job_resp = requests.get(
+                    f"{self._host}/api/v1/job",
+                    headers={"X-Api-Key": self._api_key},
+                    timeout=10,
+                )
+                if job_resp.ok:
+                    file_info = job_resp.json().get("file") or {}
+                    display_name = file_info.get("display_name") or file_info.get("name")
+            except Exception:
+                pass
 
         return {
             "state":              state,

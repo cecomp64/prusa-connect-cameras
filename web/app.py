@@ -515,6 +515,27 @@ def _pl_config() -> tuple[str, str]:
     return pl["host"].rstrip("/"), pl["api_key"]
 
 
+@app.get("/api/printer/thumbnail")
+def get_printer_thumbnail():
+    host, api_key = _pl_config()
+    try:
+        job_resp = requests.get(f"{host}/api/v1/job",
+                                headers={"X-Api-Key": api_key}, timeout=10)
+        job_resp.raise_for_status()
+        refs = (job_resp.json().get("file") or {}).get("refs") or {}
+        path = refs.get("thumbnail") or refs.get("icon")
+        if not path:
+            raise HTTPException(404, "No thumbnail available")
+        img = requests.get(f"{host}{path}", headers={"X-Api-Key": api_key}, timeout=10)
+        img.raise_for_status()
+        return Response(content=img.content,
+                        media_type=img.headers.get("content-type", "image/png"))
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, str(exc))
+
+
 @app.post("/api/printer/control/pause")
 def printer_pause():
     host, api_key = _pl_config()

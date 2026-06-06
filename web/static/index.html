@@ -53,15 +53,20 @@
               <div class="printer-stat"><span class="printer-stat-label">Fans</span><span id="ps-fan-hotend" class="printer-stat-value">&#8212;</span><span id="ps-fan-print" class="printer-stat-target"></span></div>
             </div>
             <div id="printer-job-panel" class="printer-job-panel hidden">
-              <div class="printer-progress-bar-wrap">
-                <div id="printer-progress-bar" class="printer-progress-bar" style="width:0%"></div>
+              <div class="printer-job-content">
+                <img id="ps-thumbnail" class="printer-job-thumbnail hidden" alt="">
+                <div class="printer-job-right">
+                  <div class="printer-progress-bar-wrap">
+                    <div id="printer-progress-bar" class="printer-progress-bar" style="width:0%"></div>
+                  </div>
+                  <div class="printer-job-stats">
+                    <span id="ps-progress" class="printer-job-pct">0%</span>
+                    <span id="ps-elapsed" class="printer-job-time">&#8212;</span>
+                    <span id="ps-remaining" class="printer-job-time">&#8212; remaining</span>
+                  </div>
+                  <div id="ps-job-name" class="printer-job-name"></div>
+                </div>
               </div>
-              <div class="printer-job-stats">
-                <span id="ps-progress" class="printer-job-pct">0%</span>
-                <span id="ps-elapsed" class="printer-job-time">&#8212;</span>
-                <span id="ps-remaining" class="printer-job-time">&#8212; remaining</span>
-              </div>
-              <div id="ps-job-name" class="printer-job-name"></div>
             </div>
           </div>
         </div>

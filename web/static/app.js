@@ -621,7 +621,8 @@ function renderPrinterLive(data, stale) {
   document.getElementById('ps-fan-hotend').textContent = p.fan_hotend != null ? `${p.fan_hotend} rpm` : '—';
   document.getElementById('ps-fan-print').textContent  = p.fan_print  != null ? `/ ${p.fan_print} rpm` : '';
 
-  const jobPanel = document.getElementById('printer-job-panel');
+  const jobPanel  = document.getElementById('printer-job-panel');
+  const thumbEl   = document.getElementById('ps-thumbnail');
   if (isActive && job) {
     const pct = job.progress ?? 0;
     document.getElementById('printer-progress-bar').style.width = `${pct.toFixed(1)}%`;
@@ -629,9 +630,21 @@ function renderPrinterLive(data, stale) {
     document.getElementById('ps-elapsed').textContent   = job.time_printing  != null ? fmtDuration(job.time_printing)  : '—';
     document.getElementById('ps-remaining').textContent = job.time_remaining != null ? `${fmtDuration(job.time_remaining)} remaining` : '—';
     document.getElementById('ps-job-name').textContent  = job.display_name ?? '';
+    // Load thumbnail once per job; cache-bust by display_name so it refreshes on new jobs.
+    const thumbKey = encodeURIComponent(job.display_name || 'active');
+    if (thumbEl.dataset.job !== thumbKey) {
+      thumbEl.dataset.job = thumbKey;
+      thumbEl.classList.add('hidden');
+      thumbEl.onerror = () => thumbEl.classList.add('hidden');
+      thumbEl.onload  = () => thumbEl.classList.remove('hidden');
+      thumbEl.src = `/api/printer/thumbnail?job=${thumbKey}`;
+    }
     jobPanel.classList.remove('hidden');
   } else {
     document.getElementById('ps-job-name').textContent = '';
+    thumbEl.src = '';
+    thumbEl.dataset.job = '';
+    thumbEl.classList.add('hidden');
     jobPanel.classList.add('hidden');
   }
 
