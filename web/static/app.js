@@ -911,12 +911,16 @@ async function loadRecordings() {
 }
 
 function buildRecordingRow(r, upload, ytAuthorized) {
+  const title    = r.display_name ? esc(r.display_name) : esc(r.name);
+  const subtitle = r.display_name ? `<div class="rec-filename">${esc(r.name)}</div>` : '';
+
   if (r.live) {
     return `
       <div class="rec-item rec-item--live">
         <div class="rec-live-dot"><span class="rec-dot"></span></div>
         <div class="rec-info">
-          <div class="rec-name">${esc(r.name)}</div>
+          <div class="rec-name">${title}</div>
+          ${subtitle}
           <div class="rec-meta">Recording in progress&hellip;</div>
         </div>
         <div class="rec-actions">
@@ -942,7 +946,8 @@ function buildRecordingRow(r, upload, ytAuthorized) {
   return `
     <div class="rec-item">
       <div class="rec-info">
-        <div class="rec-name">${esc(r.name)}</div>
+        <div class="rec-name">${title}</div>
+        ${subtitle}
         <div class="rec-meta">${fmtBytes(r.size)} &middot; ${fmtDate(r.mtime)}</div>
       </div>
       <div class="rec-actions">

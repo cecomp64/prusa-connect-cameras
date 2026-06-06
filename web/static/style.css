@@ -359,6 +359,7 @@ em.muted { font-style: normal; }
 
 .rec-info { flex: 1; min-width: 0; }
 .rec-name { font-family: var(--mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rec-filename { font-family: var(--mono); font-size: 10px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
 .rec-meta { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
 .rec-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 

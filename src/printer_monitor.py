@@ -53,6 +53,7 @@ class PrinterMonitor:
         self._last_state   = PrinterState.UNKNOWN
         self._print_active = False
         self._current_job_id: str | None = None
+        self._current_job_name: str | None = None  # backfilled once PrusaLink reports it
         self._last_snapshot: dict | None = None  # last telemetry row inserted
         self._last_idle_write: float = 0.0       # timestamp of last non-active write
         self._last_job_time_printing: int | None = None  # printer's own active-time counter
@@ -84,6 +85,11 @@ class PrinterMonitor:
                     t = snapshot.get("job_time_printing")
                     if t is not None:
                         self._last_job_time_printing = t
+                    # Backfill display_name as soon as PrusaLink reports it
+                    name = snapshot.get("job_display_name")
+                    if name and name != self._current_job_name and self._current_job_id:
+                        self._current_job_name = name
+                        self._db.update_print_job_name(self._current_job_id, name)
                     if self._snapshot_changed(snapshot):
                         self._db.insert_telemetry(snapshot)
                         self._last_snapshot = snapshot
@@ -163,7 +169,9 @@ class PrinterMonitor:
             self._print_active = True
             job_id = str(uuid.uuid4())
             self._current_job_id = job_id
-            self._db.begin_print_job(job_id, snapshot.get("job_display_name"))
+            name = snapshot.get("job_display_name")
+            self._current_job_name = name
+            self._db.begin_print_job(job_id, name)
             if self.on_print_start:
                 self.on_print_start(state, job_id)
 
@@ -173,6 +181,7 @@ class PrinterMonitor:
             self._print_active = False
             job_id = self._current_job_id
             self._current_job_id = None
+            self._current_job_name = None
             printer_duration = self._last_job_time_printing
             self._last_job_time_printing = None
             if self.on_print_end:

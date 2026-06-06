@@ -341,9 +341,15 @@ def get_stats():
                 "SELECT duration_seconds FROM print_jobs WHERE end_ts IS NOT NULL"
             ).fetchall()
             recent_rows = conn.execute(
-                "SELECT id, display_name, start_ts, end_ts, duration_seconds, end_state "
-                "FROM print_jobs WHERE end_ts IS NOT NULL "
-                "ORDER BY start_ts DESC LIMIT 15"
+                "SELECT pj.id, "
+                "COALESCE(pj.display_name, "
+                "  (SELECT pt.job_display_name FROM printer_telemetry pt "
+                "   WHERE pt.ts BETWEEN pj.start_ts AND pj.end_ts "
+                "   AND pt.job_display_name IS NOT NULL LIMIT 1)"
+                ") AS display_name, "
+                "pj.start_ts, pj.end_ts, pj.duration_seconds, pj.end_state "
+                "FROM print_jobs pj WHERE pj.end_ts IS NOT NULL "
+                "ORDER BY pj.start_ts DESC LIMIT 15"
             ).fetchall()
     else:
         summary = {"cnt": 0, "total_secs": 0}
@@ -468,8 +474,14 @@ def get_system_stats():
     if conn:
         with conn:
             job_rows = conn.execute(
-                "SELECT display_name, start_ts, end_ts, end_state, duration_seconds "
-                "FROM print_jobs ORDER BY start_ts DESC LIMIT 100"
+                "SELECT COALESCE(pj.display_name, "
+                "  (SELECT pt.job_display_name FROM printer_telemetry pt "
+                "   WHERE pt.ts BETWEEN pj.start_ts "
+                "     AND COALESCE(pj.end_ts, pj.start_ts + 86400) "
+                "   AND pt.job_display_name IS NOT NULL LIMIT 1)"
+                ") AS display_name, "
+                "pj.start_ts, pj.end_ts, pj.end_state, pj.duration_seconds "
+                "FROM print_jobs pj ORDER BY pj.start_ts DESC LIMIT 100"
             ).fetchall()
             for r in job_rows:
                 name = r["display_name"] or "(unknown)"
@@ -1099,12 +1111,35 @@ def list_recordings():
         if "path" in s
     }
 
+    # Look up print job names from DB (filename → display_name)
+    print_name_by_file: dict[str, str] = {}
+    try:
+        with _open_db() as conn:
+            rows = conn.execute(
+                "SELECT r.file_path, "
+                "COALESCE(pj.display_name, "
+                "  (SELECT pt.job_display_name FROM printer_telemetry pt "
+                "   WHERE pt.ts BETWEEN pj.start_ts "
+                "     AND COALESCE(pj.end_ts, pj.start_ts + 86400) "
+                "   AND pt.job_display_name IS NOT NULL LIMIT 1)"
+                ") AS display_name "
+                "FROM recordings r "
+                "JOIN print_jobs pj ON pj.id = r.job_id"
+            ).fetchall()
+            for row in rows:
+                fname = Path(row["file_path"]).name
+                if row["display_name"]:
+                    print_name_by_file[fname] = row["display_name"]
+    except Exception:
+        pass
+
     results = []
     if rec_dir.exists():
         for f in sorted(rec_dir.glob("*.mp4"), key=lambda x: x.stat().st_mtime, reverse=True):
             session = live_by_name.pop(f.name, None)
             results.append({
                 "name": f.name,
+                "display_name": print_name_by_file.get(f.name),
                 "size": f.stat().st_size,
                 "mtime": f.stat().st_mtime,
                 "live": session is not None,
@@ -1115,6 +1150,7 @@ def list_recordings():
     for fname, session in live_by_name.items():
         results.insert(0, {
             "name": fname,
+            "display_name": None,
             "size": 0,
             "mtime": 0,
             "live": True,
