@@ -97,10 +97,13 @@ def main() -> None:
             for path in files:
                 filename = Path(path).name
                 title = f"{job_name} — {timestamp}" if job_name else f"3D Print — {timestamp} ({state.value})"
-                db.set_upload_state(filename, "pending")
+                db.set_upload_state(filename, "uploading", pct=0)
                 try:
-                    url = uploader.upload(path, title=title)
-                    db.set_upload_state(filename, "done", url=url)
+                    url = uploader.upload(
+                        path, title=title,
+                        on_progress=lambda pct, fn=filename: db.set_upload_pct(fn, pct),
+                    )
+                    db.set_upload_state(filename, "done", url=url, pct=100)
                     logger.info("YouTube: %s", url)
                 except Exception as exc:
                     db.set_upload_state(filename, "error", error=str(exc))

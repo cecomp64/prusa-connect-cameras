@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS youtube_uploads (
     video_id     TEXT,
     url          TEXT,
     status       TEXT    NOT NULL,
+    pct          INTEGER NOT NULL DEFAULT 0,
     error        TEXT,
     uploaded_ts  INTEGER NOT NULL
 );
@@ -114,7 +115,20 @@ class Database:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
+        self._migrate()
         logger.info("Database opened at %s", path)
+
+    def _migrate(self) -> None:
+        """Apply incremental schema changes that CREATE TABLE IF NOT EXISTS can't handle."""
+        for stmt in [
+            "ALTER TABLE youtube_uploads ADD COLUMN filename TEXT UNIQUE",
+            "ALTER TABLE youtube_uploads ADD COLUMN pct INTEGER NOT NULL DEFAULT 0",
+        ]:
+            try:
+                self._conn.execute(stmt)
+                self._conn.commit()
+            except sqlite3.OperationalError:
+                pass  # column already exists
 
     # ── Telemetry ─────────────────────────────────────────────────────────────────
 
@@ -244,15 +258,24 @@ class Database:
         status: str,
         url: str | None = None,
         error: str | None = None,
+        pct: int = 0,
     ) -> None:
         with self._lock:
             self._conn.execute(
-                """INSERT INTO youtube_uploads (filename, status, url, error, uploaded_ts)
-                   VALUES (?, ?, ?, ?, ?)
+                """INSERT INTO youtube_uploads (filename, status, pct, url, error, uploaded_ts)
+                   VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(filename) DO UPDATE SET
-                     status=excluded.status, url=excluded.url,
+                     status=excluded.status, pct=excluded.pct, url=excluded.url,
                      error=excluded.error, uploaded_ts=excluded.uploaded_ts""",
-                (filename, status, url, error, int(time.time())),
+                (filename, status, pct, url, error, int(time.time())),
+            )
+            self._conn.commit()
+
+    def set_upload_pct(self, filename: str, pct: int) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE youtube_uploads SET pct=? WHERE filename=?",
+                (pct, filename),
             )
             self._conn.commit()
         logger.info("Upload state: %s → %s", filename, status)

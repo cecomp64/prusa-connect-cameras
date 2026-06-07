@@ -36,10 +36,13 @@ from pydantic import BaseModel
 app = FastAPI(title="Prusa Camera Manager")
 
 
+@app.on_event("startup")
+def _on_startup() -> None:
+    _migrate_db()
+
+
 CONFIG_PATH = Path(os.environ.get("CONFIG", "/etc/prusa-cameras/config.yaml"))
 
-# In-memory pct only — written per-chunk during active uploads; everything else lives in DB
-_upload_pct: dict[str, int] = {}
 
 
 # ── Config helpers ─────────────────────────────────────────────────────────────
@@ -169,30 +172,47 @@ def _open_db_rw() -> sqlite3.Connection:
     return conn
 
 
-def _migrate_upload_table() -> None:
-    """Add filename column to youtube_uploads if it doesn't exist yet."""
+def _migrate_db() -> None:
+    """Run all incremental schema migrations. Safe to call on every startup."""
+    stmts = [
+        "ALTER TABLE youtube_uploads ADD COLUMN filename TEXT UNIQUE",
+        "ALTER TABLE youtube_uploads ADD COLUMN pct INTEGER NOT NULL DEFAULT 0",
+    ]
     try:
         with _open_db_rw() as conn:
-            conn.execute("ALTER TABLE youtube_uploads ADD COLUMN filename TEXT UNIQUE")
+            for stmt in stmts:
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             conn.commit()
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    except Exception as exc:
+        logger.warning("DB migration failed: %s", exc)
 
 
-def _write_upload(filename: str, status: str, url: str | None = None, error: str | None = None) -> None:
+def _write_upload(filename: str, status: str, url: str | None = None, error: str | None = None, pct: int = 0) -> None:
     try:
         with _open_db_rw() as conn:
             conn.execute(
-                """INSERT INTO youtube_uploads (filename, status, url, error, uploaded_ts)
-                   VALUES (?, ?, ?, ?, ?)
+                """INSERT INTO youtube_uploads (filename, status, pct, url, error, uploaded_ts)
+                   VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(filename) DO UPDATE SET
-                     status=excluded.status, url=excluded.url,
+                     status=excluded.status, pct=excluded.pct, url=excluded.url,
                      error=excluded.error, uploaded_ts=excluded.uploaded_ts""",
-                (filename, status, url, error, int(time.time())),
+                (filename, status, pct, url, error, int(time.time())),
             )
             conn.commit()
     except Exception as exc:
         logger.warning("Could not persist upload state to DB: %s", exc)
+
+
+def _write_upload_pct(filename: str, pct: int) -> None:
+    try:
+        with _open_db_rw() as conn:
+            conn.execute("UPDATE youtube_uploads SET pct=? WHERE filename=?", (pct, filename))
+            conn.commit()
+    except Exception as exc:
+        logger.warning("Could not update upload pct in DB: %s", exc)
 
 
 @app.get("/api/printer/status")
@@ -1199,7 +1219,6 @@ def delete_recording(filename: str):
     if not path.exists():
         raise HTTPException(404)
     path.unlink()
-    _upload_pct.pop(filename, None)
     try:
         with _open_db_rw() as conn:
             conn.execute("DELETE FROM youtube_uploads WHERE filename = ?", (filename,))
@@ -1241,12 +1260,12 @@ def get_upload_statuses():
         if not conn:
             return {}
         rows = conn.execute(
-            "SELECT filename, status, url, error FROM youtube_uploads WHERE filename IS NOT NULL"
+            "SELECT filename, status, pct, url, error FROM youtube_uploads WHERE filename IS NOT NULL"
         ).fetchall()
         return {
             row["filename"]: {
                 "status": row["status"],
-                "pct": _upload_pct.get(row["filename"], 100 if row["status"] == "done" else 0),
+                "pct": row["pct"],
                 "url": row["url"],
                 "error": row["error"],
             }
@@ -1374,9 +1393,36 @@ def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
                 raise RuntimeError("YouTube credentials expired — re-authorize in Settings → YouTube")
 
         svc = build("youtube", "v3", credentials=creds, cache_discovery=False)
+
+        print_name = None
+        try:
+            with _open_db() as conn:
+                row = conn.execute(
+                    "SELECT COALESCE(pj.display_name, "
+                    "  (SELECT pt.job_display_name FROM printer_telemetry pt "
+                    "   WHERE pt.ts BETWEEN pj.start_ts "
+                    "     AND COALESCE(pj.end_ts, pj.start_ts + 86400) "
+                    "   AND pt.job_display_name IS NOT NULL LIMIT 1)"
+                    ") AS display_name "
+                    "FROM recordings r "
+                    "JOIN print_jobs pj ON pj.id = r.job_id "
+                    "WHERE r.file_path LIKE ?",
+                    (f"%{filename}",),
+                ).fetchone()
+                if row:
+                    print_name = row["display_name"]
+        except Exception:
+            pass
+
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+        if print_name:
+            title = f"{print_name} — {timestamp}"
+        else:
+            title = f"3D Print — {timestamp}"
+
         body = {
             "snippet": {
-                "title": filename[:100],
+                "title": title[:100],
                 "description": "Recorded by prusa-connect-cameras",
                 "tags": yt.get("keywords", []),
                 "categoryId": str(yt.get("category_id", "28")),
@@ -1392,8 +1438,7 @@ def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
         media = MediaFileUpload(upload_path, mimetype=mime, chunksize=10 * 1024 * 1024, resumable=True)
         req = svc.videos().insert(part=",".join(body.keys()), body=body, media_body=media)
 
-        _write_upload(filename, "uploading")
-        _upload_pct[filename] = 0
+        _write_upload(filename, "uploading", pct=0)
         response = None
         chunk_num = 0
         while response is None:
@@ -1402,7 +1447,7 @@ def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
             if status:
                 pct = int(status.progress() * 100)
                 sent = int(status.progress() * upload_size)
-                _upload_pct[filename] = pct
+                _write_upload_pct(filename, pct)
                 logger.info("Upload chunk %d: %d%%  (%d / %d bytes)", chunk_num, pct, sent, upload_size)
 
         logger.info("YouTube API response: %s", json.dumps(response, indent=2))
@@ -1428,11 +1473,9 @@ def _do_upload(filename: str, video_path: str, cfg: dict) -> None:
             except Exception as exc:
                 logger.warning("Playlist insert failed: %s", exc)
 
-        _upload_pct.pop(filename, None)
-        _write_upload(filename, "done", url=url)
+        _write_upload(filename, "done", url=url, pct=100)
     except Exception as exc:
         logger.error("YouTube upload failed for %s: %s", filename, exc, exc_info=True)
-        _upload_pct.pop(filename, None)
         _write_upload(filename, "error", error=str(exc))
     finally:
         if remuxed_path and Path(remuxed_path).exists():

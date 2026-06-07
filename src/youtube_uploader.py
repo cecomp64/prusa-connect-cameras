@@ -51,7 +51,7 @@ class YouTubeUploader:
     # Public interface
     # ------------------------------------------------------------------
 
-    def upload(self, video_path: str, title: str, description: str = "") -> str:
+    def upload(self, video_path: str, title: str, description: str = "", on_progress=None) -> str:
         """Upload *video_path* and return the YouTube watch URL."""
         path = Path(video_path)
         key = str(path.resolve())
@@ -139,6 +139,8 @@ class YouTubeUploader:
                     "YouTube upload chunk %d: %d%%  (%d / %d bytes)",
                     chunk_count, pct, uploaded, file_size,
                 )
+                if on_progress:
+                    on_progress(pct)
 
         logger.info("YouTube API response: %s", json.dumps(response, indent=2))
         video_id = response["id"]
