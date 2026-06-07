@@ -1315,13 +1315,20 @@ def delete_recording(filename: str):
     path = rec_dir / filename
     if not path.exists():
         raise HTTPException(404)
+    size = path.stat().st_size
     path.unlink()
     try:
         with _open_db_rw() as conn:
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE recordings SET file_deleted=1 WHERE file_path=?",
                 (str(path),),
             )
+            if cur.rowcount == 0:
+                conn.execute(
+                    "INSERT OR IGNORE INTO recordings "
+                    "(id, file_path, file_size_bytes, file_deleted) VALUES (?, ?, ?, 1)",
+                    (str(uuid.uuid4()), str(path), size),
+                )
             conn.commit()
     except Exception as exc:
         logger.warning("Could not mark recording as deleted: %s", exc)
