@@ -121,14 +121,16 @@ class Database:
     def _migrate(self) -> None:
         """Apply incremental schema changes that CREATE TABLE IF NOT EXISTS can't handle."""
         for stmt in [
-            "ALTER TABLE youtube_uploads ADD COLUMN filename TEXT UNIQUE",
+            # UNIQUE cannot be inline in ALTER TABLE ADD COLUMN in SQLite — use a separate index
+            "ALTER TABLE youtube_uploads ADD COLUMN filename TEXT",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_yt_filename ON youtube_uploads(filename)",
             "ALTER TABLE youtube_uploads ADD COLUMN pct INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
                 self._conn.execute(stmt)
                 self._conn.commit()
             except sqlite3.OperationalError:
-                pass  # column already exists
+                pass  # column/index already exists
 
     # ── Telemetry ─────────────────────────────────────────────────────────────────
 

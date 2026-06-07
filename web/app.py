@@ -174,8 +174,10 @@ def _open_db_rw() -> sqlite3.Connection:
 
 def _migrate_db() -> None:
     """Run all incremental schema migrations. Safe to call on every startup."""
+    # UNIQUE cannot be inline in ALTER TABLE ADD COLUMN in SQLite — use a separate index
     stmts = [
-        "ALTER TABLE youtube_uploads ADD COLUMN filename TEXT UNIQUE",
+        "ALTER TABLE youtube_uploads ADD COLUMN filename TEXT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_yt_filename ON youtube_uploads(filename)",
         "ALTER TABLE youtube_uploads ADD COLUMN pct INTEGER NOT NULL DEFAULT 0",
     ]
     try:
@@ -184,7 +186,7 @@ def _migrate_db() -> None:
                 try:
                     conn.execute(stmt)
                 except sqlite3.OperationalError:
-                    pass  # column already exists
+                    pass  # column/index already exists
             conn.commit()
     except Exception as exc:
         logger.warning("DB migration failed: %s", exc)
