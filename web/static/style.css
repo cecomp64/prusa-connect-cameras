@@ -368,6 +368,9 @@ em.muted { font-style: normal; }
   border-color: rgba(248,81,73,.4);
   background: rgba(248,81,73,.06);
 }
+.rec-item--deleted {
+  opacity: 0.55;
+}
 .rec-live-dot { display: flex; align-items: center; flex-shrink: 0; }
 
 .badge-uploading {

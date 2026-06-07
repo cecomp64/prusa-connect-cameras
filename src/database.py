@@ -125,6 +125,7 @@ class Database:
             "ALTER TABLE youtube_uploads ADD COLUMN filename TEXT",
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_yt_filename ON youtube_uploads(filename)",
             "ALTER TABLE youtube_uploads ADD COLUMN pct INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE recordings ADD COLUMN file_deleted INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
                 self._conn.execute(stmt)

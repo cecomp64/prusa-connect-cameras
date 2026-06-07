@@ -179,6 +179,7 @@ def _migrate_db() -> None:
         "ALTER TABLE youtube_uploads ADD COLUMN filename TEXT",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_yt_filename ON youtube_uploads(filename)",
         "ALTER TABLE youtube_uploads ADD COLUMN pct INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE recordings ADD COLUMN file_deleted INTEGER NOT NULL DEFAULT 0",
     ]
     try:
         with _open_db_rw() as conn:
@@ -1194,6 +1195,7 @@ def list_recordings():
                 "size": f.stat().st_size,
                 "mtime": f.stat().st_mtime,
                 "live": session is not None,
+                "deleted": False,
                 "camera_name": session["name"] if session else None,
             })
 
@@ -1205,8 +1207,39 @@ def list_recordings():
             "size": 0,
             "mtime": 0,
             "live": True,
+            "deleted": False,
             "camera_name": session["name"],
         })
+
+    # Deleted recordings kept in DB
+    try:
+        with _open_db() as conn:
+            deleted_rows = conn.execute(
+                "SELECT r.file_path, r.file_size_bytes, r.end_ts, "
+                "COALESCE(pj.display_name, "
+                "  (SELECT pt.job_display_name FROM printer_telemetry pt "
+                "   WHERE pt.ts BETWEEN pj.start_ts "
+                "     AND COALESCE(pj.end_ts, pj.start_ts + 86400) "
+                "   AND pt.job_display_name IS NOT NULL LIMIT 1)"
+                ") AS display_name "
+                "FROM recordings r "
+                "LEFT JOIN print_jobs pj ON pj.id = r.job_id "
+                "WHERE r.file_deleted = 1 "
+                "ORDER BY r.end_ts DESC"
+            ).fetchall()
+            for row in deleted_rows:
+                fname = Path(row["file_path"]).name
+                results.append({
+                    "name": fname,
+                    "display_name": row["display_name"],
+                    "size": row["file_size_bytes"] or 0,
+                    "mtime": row["end_ts"] or 0,
+                    "live": False,
+                    "deleted": True,
+                    "camera_name": None,
+                })
+    except Exception:
+        pass
 
     return results
 
@@ -1223,10 +1256,13 @@ def delete_recording(filename: str):
     path.unlink()
     try:
         with _open_db_rw() as conn:
-            conn.execute("DELETE FROM youtube_uploads WHERE filename = ?", (filename,))
+            conn.execute(
+                "UPDATE recordings SET file_deleted=1 WHERE file_path=?",
+                (str(path),),
+            )
             conn.commit()
     except Exception as exc:
-        logger.warning("Could not delete upload entry: %s", exc)
+        logger.warning("Could not mark recording as deleted: %s", exc)
 
 
 @app.post("/api/recordings/{filename}/upload")

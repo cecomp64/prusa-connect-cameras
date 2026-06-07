@@ -973,6 +973,22 @@ function buildRecordingRow(r, upload, ytAuthorized) {
       </div>`;
   }
 
+  if (r.deleted) {
+    const ytLink = upload?.status === 'done' && upload.url
+      ? `<a href="${esc(upload.url)}" target="_blank" class="btn btn-ghost btn-sm yt-done-btn">&#9654; YouTube</a>`
+      : '';
+    const meta = r.size ? `${fmtBytes(r.size)} &middot; ` : '';
+    return `
+      <div class="rec-item rec-item--deleted">
+        <div class="rec-info">
+          <div class="rec-name">${title}</div>
+          ${subtitle}
+          <div class="rec-meta">${meta}File deleted</div>
+        </div>
+        <div class="rec-actions">${ytLink}</div>
+      </div>`;
+  }
+
   let ytBtn = '';
   if (upload) {
     if (upload.status === 'pending' || upload.status === 'uploading') {
