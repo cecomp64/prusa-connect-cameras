@@ -1045,6 +1045,7 @@ def start_recording(camera_name: str):
     )
 
     # Wait briefly so we can catch an immediate failure (bad URL, codec error, etc.)
+    start_ts = int(_time.time())
     _time.sleep(1.5)
     rc = proc.poll()
     if rc is not None:
@@ -1052,12 +1053,22 @@ def start_recording(camera_name: str):
         logger.error("[%s] ffmpeg exited immediately (rc=%d): %s", camera_name, rc, stderr)
         raise HTTPException(500, f"Recording failed to start (rc={rc}): {stderr[-300:] or 'unknown error'}")
 
-    # Process is alive — drain its stderr in the background so warnings reach the log
-    def _drain_stderr(p: subprocess.Popen, name: str) -> None:
+    # Process is alive — drain stderr in background; update file size in DB once ffmpeg exits
+    def _finalize(p: subprocess.Popen, name: str, path: str) -> None:
         for line in p.stderr:
             logger.warning("[%s] ffmpeg: %s", name, line.decode(errors="replace").rstrip())
+        try:
+            size = Path(path).stat().st_size if Path(path).exists() else None
+            with _open_db_rw() as conn:
+                conn.execute(
+                    "UPDATE recordings SET file_size_bytes=? WHERE file_path=?",
+                    (size, path),
+                )
+                conn.commit()
+        except Exception as exc:
+            logger.warning("[%s] Could not update recording file size: %s", name, exc)
 
-    threading.Thread(target=_drain_stderr, args=(proc, camera_name), daemon=True).start()
+    threading.Thread(target=_finalize, args=(proc, camera_name, str(out)), daemon=True).start()
 
     # Write only live sessions + the new one (avoids re-adding any stale entries)
     sessions = [s for s in _live_sessions() if s.get("name") != camera_name]
@@ -1066,6 +1077,29 @@ def start_recording(camera_name: str):
         _STATUS_FILE.write_text(json.dumps({"recording": sessions}))
     except OSError:
         pass
+
+    job_id = None
+    try:
+        with _open_db() as conn:
+            row = conn.execute(
+                "SELECT id FROM print_jobs WHERE end_ts IS NULL ORDER BY start_ts DESC LIMIT 1"
+            ).fetchone()
+            if row:
+                job_id = row["id"]
+    except Exception:
+        pass
+
+    try:
+        with _open_db_rw() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO recordings "
+                "(id, job_id, camera_safe_name, file_path, start_ts) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), job_id, safe, str(out), start_ts),
+            )
+            conn.commit()
+    except Exception as exc:
+        logger.warning("[%s] Could not insert recording entry: %s", camera_name, exc)
 
     logger.info("[%s] Manual recording started → %s (pid %d)", camera_name, out, proc.pid)
     return {"ok": True, "path": str(out)}
@@ -1092,6 +1126,17 @@ def stop_recording(camera_name: str):
         _STATUS_FILE.write_text(json.dumps(data))
     except OSError:
         pass
+    out_path = session.get("path")
+    if out_path:
+        try:
+            with _open_db_rw() as conn:
+                conn.execute(
+                    "UPDATE recordings SET end_ts=? WHERE file_path=?",
+                    (int(time.time()), out_path),
+                )
+                conn.commit()
+        except Exception as exc:
+            logger.warning("[%s] Could not update recording end_ts: %s", camera_name, exc)
     return {"ok": True}
 
 
