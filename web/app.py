@@ -39,6 +39,23 @@ app = FastAPI(title="Prusa Camera Manager")
 @app.on_event("startup")
 def _on_startup() -> None:
     _migrate_db()
+    _reset_stuck_uploads()
+
+
+def _reset_stuck_uploads() -> None:
+    """Reset uploads left in-progress from a previous run — those threads are gone."""
+    try:
+        with _open_db_rw() as conn:
+            cur = conn.execute(
+                "UPDATE youtube_uploads SET status='error', pct=0, "
+                "error='Upload interrupted — click Retry to re-upload' "
+                "WHERE status IN ('uploading', 'pending')"
+            )
+            conn.commit()
+        if cur.rowcount:
+            logger.info("Reset %d stuck upload(s) to error state", cur.rowcount)
+    except Exception as exc:
+        logger.warning("Could not reset stuck uploads: %s", exc)
 
 
 CONFIG_PATH = Path(os.environ.get("CONFIG", "/etc/prusa-cameras/config.yaml"))
