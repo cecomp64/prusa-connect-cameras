@@ -2,6 +2,7 @@
 
 import logging
 import os
+import queue
 import signal
 import sys
 import threading
@@ -38,6 +39,25 @@ def _purge_loop(db: Database, stop_event: threading.Event) -> None:
     while not stop_event.is_set():
         db.purge_old_telemetry()
         stop_event.wait(86400)
+
+
+def _upload_worker(q: queue.Queue, uploader: "YouTubeUploader", db: Database) -> None:
+    while True:
+        path, title, filename = q.get()
+        logger.info("Upload worker: starting %s", filename)
+        try:
+            db.set_upload_state(filename, "uploading", pct=0)
+            url = uploader.upload(
+                path, title=title,
+                on_progress=lambda pct, fn=filename: db.set_upload_pct(fn, pct),
+            )
+            db.set_upload_state(filename, "done", url=url, pct=100)
+            logger.info("YouTube upload complete: %s → %s", filename, url)
+        except Exception as exc:
+            db.set_upload_state(filename, "error", error=str(exc))
+            logger.error("YouTube upload failed for %s: %s", path, exc)
+        finally:
+            q.task_done()
 
 
 def _system_metrics_loop(db: Database, stop_event: threading.Event) -> None:
@@ -82,6 +102,24 @@ def main() -> None:
     threading.Thread(target=_system_metrics_loop, args=(db, _shutdown), daemon=True,
                      name="system-metrics").start()
 
+    upload_queue: queue.Queue | None = None
+    if uploader:
+        upload_queue = queue.Queue()
+        threading.Thread(
+            target=_upload_worker,
+            args=(upload_queue, uploader, db),
+            daemon=True,
+            name="yt-upload",
+        ).start()
+        for item in db.get_pending_uploads():
+            file_path = item.get("file_path")
+            if file_path and Path(file_path).exists():
+                logger.info("Requeueing interrupted upload: %s", item["filename"])
+                upload_queue.put((file_path, item.get("title") or item["filename"], item["filename"]))
+            else:
+                logger.warning("Interrupted upload file missing, marking error: %s", item["filename"])
+                db.set_upload_state(item["filename"], "error", error="File missing after service restart")
+
     def on_print_start(state: PrinterState, job_id: str) -> None:
         logger.info("Print started (%s) — job %s", state.value, job_id)
         recorder.start_all(label="print")
@@ -92,22 +130,14 @@ def main() -> None:
         if job_id:
             db.end_print_job(job_id, state.value, files, printer_duration)
 
-        if uploader and files:
+        if upload_queue is not None and files:
             timestamp = time.strftime("%Y-%m-%d %H:%M")
             for path in files:
                 filename = Path(path).name
                 title = f"{job_name} — {timestamp}" if job_name else f"3D Print — {timestamp} ({state.value})"
-                db.set_upload_state(filename, "uploading", pct=0)
-                try:
-                    url = uploader.upload(
-                        path, title=title,
-                        on_progress=lambda pct, fn=filename: db.set_upload_pct(fn, pct),
-                    )
-                    db.set_upload_state(filename, "done", url=url, pct=100)
-                    logger.info("YouTube: %s", url)
-                except Exception as exc:
-                    db.set_upload_state(filename, "error", error=str(exc))
-                    logger.error("YouTube upload failed for %s: %s", path, exc)
+                db.set_upload_state(filename, "pending", pct=0, title=title, file_path=path)
+                upload_queue.put((path, title, filename))
+                logger.info("Queued for upload: %s", filename)
 
     monitor: PrinterMonitor | None = None
     pl_cfg = cfg.get("prusalink", {})

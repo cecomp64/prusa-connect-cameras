@@ -27,7 +27,9 @@ class PrinterState(str, Enum):
 
 
 # States that mean "a print is in progress"
-ACTIVE = {PrinterState.PRINTING, PrinterState.PAUSED}
+# ATTENTION is included because printers enter it mid-print (e.g. filament change prompt)
+# and we don't want to trigger on_print_end prematurely.
+ACTIVE = {PrinterState.PRINTING, PrinterState.PAUSED, PrinterState.ATTENTION}
 
 # States that mean "a print has ended"
 TERMINAL = {PrinterState.FINISHED, PrinterState.STOPPED, PrinterState.ERROR}

@@ -126,6 +126,8 @@ class Database:
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_yt_filename ON youtube_uploads(filename)",
             "ALTER TABLE youtube_uploads ADD COLUMN pct INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE recordings ADD COLUMN file_deleted INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE youtube_uploads ADD COLUMN title TEXT",
+            "ALTER TABLE youtube_uploads ADD COLUMN file_path TEXT",
         ]:
             try:
                 self._conn.execute(stmt)
@@ -262,15 +264,19 @@ class Database:
         url: str | None = None,
         error: str | None = None,
         pct: int = 0,
+        title: str | None = None,
+        file_path: str | None = None,
     ) -> None:
         with self._lock:
             self._conn.execute(
-                """INSERT INTO youtube_uploads (filename, status, pct, url, error, uploaded_ts)
-                   VALUES (?, ?, ?, ?, ?, ?)
+                """INSERT INTO youtube_uploads (filename, status, pct, url, error, uploaded_ts, title, file_path)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(filename) DO UPDATE SET
                      status=excluded.status, pct=excluded.pct, url=excluded.url,
-                     error=excluded.error, uploaded_ts=excluded.uploaded_ts""",
-                (filename, status, pct, url, error, int(time.time())),
+                     error=excluded.error, uploaded_ts=excluded.uploaded_ts,
+                     title=COALESCE(excluded.title, title),
+                     file_path=COALESCE(excluded.file_path, file_path)""",
+                (filename, status, pct, url, error, int(time.time()), title, file_path),
             )
             self._conn.commit()
 
@@ -281,7 +287,15 @@ class Database:
                 (pct, filename),
             )
             self._conn.commit()
-        logger.info("Upload state: %s → %s", filename, status)
+
+    def get_pending_uploads(self) -> list[dict]:
+        """Return uploads stuck in pending/uploading state from a previous interrupted run."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT filename, file_path, title FROM youtube_uploads "
+                "WHERE status IN ('pending', 'uploading')"
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     # ── System metrics ────────────────────────────────────────────────────────────
 
