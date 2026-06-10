@@ -7,9 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 
-import httplib2
 from google.auth.transport.requests import Request
-from google_auth_httplib2 import AuthorizedHttp
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
@@ -181,9 +179,7 @@ class YouTubeUploader:
 
     def _build_service(self):
         creds = self._load_creds()
-        # 120-second per-request timeout prevents hangs on slow/dropped connections.
-        authorized_http = AuthorizedHttp(creds, http=httplib2.Http(timeout=120))
-        return build("youtube", "v3", http=authorized_http, cache_discovery=False)
+        return build("youtube", "v3", credentials=creds, cache_discovery=False)
 
     def _load_creds(self):
         cache = Path(self._creds_cache)
