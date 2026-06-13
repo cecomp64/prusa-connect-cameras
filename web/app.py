@@ -620,24 +620,256 @@ def get_printer_thumbnail():
         raise HTTPException(503, str(exc))
 
 
-@app.get("/api/printer/icon")
-def get_printer_file_icon(ref: str):
-    """Proxy a file icon/thumbnail from PrusaLink, keyed by its refs path."""
-    host, api_key = _pl_config()
-    if not ref.startswith("/"):
-        raise HTTPException(400, "Invalid ref")
+_ICON_CACHE_DIR = Path(os.environ.get("ICON_CACHE_DIR", "/var/lib/prusa-cameras/icon-cache"))
+
+
+def _icon_cache_path(key: str) -> Path:
+    import hashlib
+    return _ICON_CACHE_DIR / hashlib.sha256(key.encode()).hexdigest()
+
+
+# ── bgcode / gcode thumbnail extractor ───────────────────────────────────────
+
+def _extract_thumbnail(raw: bytes) -> tuple[bytes, str] | None:
+    """
+    Extract the best available thumbnail from bgcode or plain-gcode bytes.
+    Returns (image_bytes, mime_type) or None.
+
+    bgcode embeds thumbnails as blocks (type 4).  Supported image formats:
+      0 = PNG  (preferred — browser-native)
+      1 = JPEG (browser-native)
+      2 = QOI  (converted to PNG via Pillow if available, else skipped)
+
+    Plain gcode embeds thumbnails as base64-encoded PNG in '; thumbnail' comments.
+    """
+    if not raw:
+        return None
+    if raw[:4] == b'GCDE':
+        return _extract_bgcode(raw)
+    return _extract_gcode_comments(raw)
+
+
+def _extract_bgcode(raw: bytes) -> tuple[bytes, str] | None:
+    import struct, zlib
+
+    if len(raw) < 8:
+        return None
+
+    # File header: GCDE(4) + version(2) + checksum_type(2)
+    checksum_type = struct.unpack_from('<H', raw, 6)[0]
+    checksum_size = 4 if checksum_type in (1, 2) else 0
+
+    THUMBNAIL_BLOCK = 4
+    IMG_PNG, IMG_JPG, IMG_QOI = 0, 1, 2
+
+    pos = 8
+    candidates: list[tuple[int, bytes, int]] = []  # (pixels, data, fmt)
+
+    while pos + 8 <= len(raw):
+        try:
+            block_type  = struct.unpack_from('<H', raw, pos)[0]
+            compression = struct.unpack_from('<H', raw, pos + 2)[0]
+            uncomp_size = struct.unpack_from('<I', raw, pos + 4)[0]
+            pos += 8
+
+            if compression != 0:
+                if pos + 4 > len(raw):
+                    break
+                comp_size = struct.unpack_from('<I', raw, pos)[0]
+                pos += 4
+                block_raw = raw[pos:pos + comp_size]
+                pos += comp_size
+            else:
+                if pos + uncomp_size > len(raw):
+                    break
+                block_raw = raw[pos:pos + uncomp_size]
+                pos += uncomp_size
+
+            pos += checksum_size
+
+            if block_type == THUMBNAIL_BLOCK:
+                if compression == 1:  # deflate
+                    try:
+                        block_raw = zlib.decompress(block_raw)
+                    except zlib.error:
+                        continue
+                elif compression != 0:
+                    continue  # heatshrink — skip
+
+                if len(block_raw) < 7:
+                    continue
+
+                fmt    = struct.unpack_from('<H', block_raw, 0)[0]
+                width  = struct.unpack_from('<H', block_raw, 2)[0]
+                height = struct.unpack_from('<H', block_raw, 4)[0]
+                img    = block_raw[6:]
+
+                if img:
+                    candidates.append((width * height, img, fmt))
+
+        except struct.error:
+            break
+
+    if not candidates:
+        return None
+
+    # Prefer PNG, then JPEG, then QOI (largest by pixel count within each tier)
+    for preferred_fmt in (IMG_PNG, IMG_JPG, IMG_QOI):
+        tier = [(px, img, fmt) for px, img, fmt in candidates if fmt == preferred_fmt]
+        if not tier:
+            continue
+        _, img, fmt = max(tier, key=lambda x: x[0])
+
+        if fmt == IMG_PNG:
+            return img, 'image/png'
+        if fmt == IMG_JPG:
+            return img, 'image/jpeg'
+        if fmt == IMG_QOI:
+            # Convert QOI → PNG using Pillow (10.0+ supports QOI)
+            try:
+                from PIL import Image
+                import io
+                pil_img = Image.open(io.BytesIO(img))
+                buf = io.BytesIO()
+                pil_img.save(buf, format='PNG')
+                return buf.getvalue(), 'image/png'
+            except Exception as exc:
+                logger.debug("QOI→PNG conversion failed: %s", exc)
+                continue
+
+    return None
+
+
+def _extract_gcode_comments(raw: bytes) -> tuple[bytes, str] | None:
+    """Extract base64-encoded PNG thumbnail from PrusaSlicer gcode comment blocks."""
+    import base64, re
     try:
-        img = requests.get(f"{host}{ref}", headers={"X-Api-Key": api_key}, timeout=10)
-        img.raise_for_status()
-        return Response(
-            content=img.content,
-            media_type=img.headers.get("content-type", "image/png"),
-            headers={"Cache-Control": "public, max-age=3600"},
+        text = raw[:131072].decode('utf-8', errors='replace')
+    except Exception:
+        return None
+
+    pattern = re.compile(
+        r'; thumbnail begin \d+x\d+ \d+\r?\n(.*?); thumbnail end',
+        re.DOTALL,
+    )
+    best: tuple[int, bytes] | None = None
+    for m in pattern.finditer(text):
+        b64 = ''.join(
+            line.lstrip('; ').rstrip('\r\n')
+            for line in m.group(1).splitlines()
         )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(503, str(exc))
+        try:
+            data = base64.b64decode(b64)
+            if best is None or len(data) > best[0]:
+                best = (len(data), data)
+        except Exception:
+            continue
+
+    return (best[1], 'image/png') if best else None
+
+
+def _cache_and_serve_icon(cache_path: Path, content: bytes, mime: str) -> Response:
+    meta_path = cache_path.with_suffix('.mime')
+    try:
+        _ICON_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cache_path.write_bytes(content)
+        meta_path.write_text(mime)
+    except OSError as exc:
+        logger.warning("Could not write icon cache: %s", exc)
+    return Response(
+        content=content,
+        media_type=mime,
+        headers={"Cache-Control": "public, max-age=604800, immutable"},
+    )
+
+
+@app.get("/api/printer/file-icon/{storage}/{path:path}")
+def get_printer_file_icon(storage: str, path: str):
+    """
+    Return a thumbnail image for a file on the printer.
+
+    Strategy:
+      1. Disk cache (indefinite — icon is tied to file content).
+      2. PrusaLink /thumb/ endpoint (fast, usually works).
+      3. Download the first 512 KB of the file and parse the embedded
+         bgcode thumbnail blocks ourselves (works even when PrusaLink's
+         /thumb/ endpoint says 'File doesn't contain preview').
+    """
+    if storage not in ("usb", "local"):
+        raise HTTPException(400, "Invalid storage")
+
+    # Normalise: strip leading storage prefix if the JS included it (e.g. "usb/usb/file")
+    if path.startswith(f"{storage}/"):
+        path = path[len(storage) + 1:]
+
+    cache_key  = f"{storage}/{path}"
+    cache_path = _icon_cache_path(cache_key)
+    meta_path  = cache_path.with_suffix(".mime")
+
+    if cache_path.exists() and meta_path.exists():
+        return Response(
+            content=cache_path.read_bytes(),
+            media_type=meta_path.read_text().strip(),
+            headers={"Cache-Control": "public, max-age=604800, immutable"},
+        )
+
+    host, api_key = _pl_config()
+    auth_header = {"X-Api-Key": api_key}
+
+    # ── 1. Try PrusaLink /thumb/ endpoints ───────────────────────────────────
+    # /thumb/l/ (large) works where /thumb/s/ (small) may not.
+    for thumb_size in ("l", "s"):
+        try:
+            r = requests.get(f"{host}/thumb/{thumb_size}/{storage}/{path}", headers=auth_header, timeout=10)
+            if r.ok and len(r.content) > 64:
+                mime = r.headers.get("content-type", "image/png").split(";")[0].strip()
+                return _cache_and_serve_icon(cache_path, r.content, mime)
+            logger.debug("PrusaLink /thumb/%s/ returned %d for %s/%s", thumb_size, r.status_code, storage, path)
+        except Exception as exc:
+            logger.debug("PrusaLink /thumb/%s/ failed: %s", thumb_size, exc)
+
+    # ── 2. Download beginning of file and extract thumbnail ourselves ─────────
+    download_candidates = [
+        f"{host}/{storage}/{path}",               # WebDAV download path
+        f"{host}/api/v1/files/{storage}/{path}",  # API v1 (may return JSON for some firmware)
+    ]
+    raw = None
+    for download_url in download_candidates:
+        for extra_headers in [{"Range": "bytes=0-524287"}, {}]:
+            try:
+                r = requests.get(
+                    download_url,
+                    headers={**auth_header, "Accept": "application/octet-stream", **extra_headers},
+                    timeout=20,
+                    stream=True,
+                )
+                if r.status_code not in (200, 206):
+                    logger.debug("Download %s → HTTP %d", download_url, r.status_code)
+                    continue
+                chunks, total = [], 0
+                for chunk in r.iter_content(32768):
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total >= 524288:
+                        break
+                raw = b"".join(chunks)
+                logger.debug("Downloaded %d bytes from %s", len(raw), download_url)
+                break  # got data
+            except Exception as exc:
+                logger.debug("Download %s failed: %s", download_url, exc)
+        if raw is not None:
+            break
+
+    if not raw:
+        raise HTTPException(503, "Could not download file from printer for thumbnail extraction")
+
+    result = _extract_thumbnail(raw)
+    if not result:
+        raise HTTPException(404, "No thumbnail found in file")
+
+    img_data, mime = result
+    logger.info("Extracted %s thumbnail (%d bytes) from %s/%s", mime, len(img_data), storage, path)
+    return _cache_and_serve_icon(cache_path, img_data, mime)
 
 
 @app.post("/api/printer/control/pause")
@@ -759,7 +991,7 @@ def _flatten_files(node, storage: str, prefix: str = "") -> list[dict]:
                 "timestamp":    node.get("m_timestamp") or node.get("date") or 0,
                 "storage":      storage,
                 "path":         path,
-                "icon_ref":     refs.get("icon") or refs.get("thumbnail"),
+                "icon_ref":     refs.get("icon") or refs.get("thumbnail") or f"/thumb/s/{storage}/{path}",
             })
         for child in node.get("children") or []:
             results.extend(_flatten_files(child, storage, path if name and name != "/" else prefix))
@@ -786,6 +1018,26 @@ def list_printer_files(storage: str):
     files = _flatten_files(data, storage)
     files.sort(key=lambda f: f["timestamp"], reverse=True)
     return files
+
+
+@app.get("/api/printer/files-raw/{storage}")
+def list_printer_files_raw(storage: str):
+    """Debug: return the raw JSON from PrusaLink's files API, unmodified."""
+    if storage not in ("usb", "local"):
+        raise HTTPException(400, "storage must be 'usb' or 'local'")
+    host, api_key = _pl_config()
+    try:
+        r = requests.get(
+            f"{host}/api/v1/files/{storage}",
+            headers={"X-Api-Key": api_key},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return r.json()
+    except requests.HTTPError as exc:
+        raise HTTPException(exc.response.status_code, exc.response.text[:200])
+    except Exception as exc:
+        raise HTTPException(503, str(exc))
 
 
 @app.post("/api/printer/files/{storage}/{path:path}/print")

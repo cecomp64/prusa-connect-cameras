@@ -95,10 +95,6 @@
         <div id="printer-files-panel" class="printer-files-panel hidden">
           <div class="printer-files-header">
             <span class="printer-files-title">Files on Printer</span>
-            <select id="printer-files-storage" class="files-storage-select">
-              <option value="usb">USB</option>
-              <option value="local">Local</option>
-            </select>
             <button class="btn btn-ghost btn-sm" id="printer-files-refresh">&#8635; Refresh</button>
             <button class="btn btn-ghost btn-icon" id="printer-files-close">&#10005;</button>
           </div>
@@ -443,6 +439,16 @@
         <button class="btn btn-ghost" id="upload-cancel-btn">Cancel</button>
         <button class="btn btn-primary" id="upload-confirm-btn">Upload</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ── File preview overlay ─────────────────────────────────────────────── -->
+  <div id="file-preview-overlay" class="file-preview-overlay hidden">
+    <div class="file-preview-box">
+      <button class="btn btn-ghost btn-icon file-preview-close" id="file-preview-close">&#10005;</button>
+      <img id="file-preview-img" class="file-preview-img" alt="">
+      <div id="file-preview-name" class="file-preview-name"></div>
+      <div id="file-preview-meta" class="file-preview-meta"></div>
     </div>
   </div>
 

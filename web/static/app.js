@@ -22,7 +22,8 @@ let statsRefreshTimer = null;
 let lastRecordingsKey = null;
 let printerConfirmPending = null; // { label, fn } while awaiting inline confirmation
 let printerFilesOpen = false;
-const fileIconCache = new Map(); // icon_ref → true (loaded) | false (error)
+const fileIconCache   = new Map(); // `${storage}/${path}` → true (loaded) | false (error)
+const printerFilesCache = new Map(); // storage → files[]
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -83,16 +84,26 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('upload-overlay').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeUploadModal();
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeUploadModal(); closePrinterFiles(); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeUploadModal(); closePrinterFiles(); closeFilePreview(); } });
+  document.getElementById('file-preview-close').addEventListener('click', closeFilePreview);
+  document.getElementById('file-preview-overlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closeFilePreview();
+  });
 
   // Printer file browser
-  document.getElementById('printer-files-refresh').addEventListener('click', () =>
-    loadPrinterFiles(document.getElementById('printer-files-storage').value));
+  document.getElementById('printer-files-refresh').addEventListener('click', () => {
+    const storage = document.getElementById('printer-files-storage').value;
+    printerFilesCache.delete(storage);
+    loadPrinterFiles(storage, true);
+  });
   document.getElementById('printer-files-close').addEventListener('click', closePrinterFiles);
-  document.getElementById('printer-files-storage').addEventListener('change', e => loadPrinterFiles(e.target.value));
+  document.getElementById('printer-files-storage').addEventListener('change', e => loadPrinterFiles(e.target.value, true));
   document.getElementById('printer-files-list').addEventListener('click', e => {
-    const btn = e.target.closest('[data-action="print-file"]');
-    if (btn) printFile(btn.dataset.storage, btn.dataset.path, btn.dataset.name);
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    if (btn.dataset.action === 'print-file')   printFile(btn.dataset.storage, btn.dataset.path, btn.dataset.name);
+    if (btn.dataset.action === 'preview-icon') loadFileIcon(btn);
+    if (btn.dataset.action === 'preview-file') openFilePreview(btn.dataset);
   });
 
   // Password show/hide (all .toggle-pw buttons)
@@ -1237,32 +1248,54 @@ function closePrinterFiles() {
   document.getElementById('printer-files-panel').classList.add('hidden');
 }
 
-async function loadPrinterFiles(storage) {
+async function loadPrinterFiles(storage, force = false) {
   const list = document.getElementById('printer-files-list');
-  list.innerHTML = '<div class="printer-files-msg">Loading…</div>';
+
+  let files = printerFilesCache.get(storage);
+  if (!files || force) {
+    list.innerHTML = '<div class="printer-files-msg">Loading…</div>';
+    try {
+      files = await api(`/api/printer/files/${encodeURIComponent(storage)}`);
+      printerFilesCache.set(storage, files);
+    } catch (e) {
+      list.innerHTML = `<div class="printer-files-msg printer-files-err">Error: ${esc(e.message)}</div>`;
+      return;
+    }
+  }
+
   try {
-    const files = await api(`/api/printer/files/${encodeURIComponent(storage)}`);
     if (!files.length) {
       list.innerHTML = `<div class="printer-files-msg">No print files found on ${esc(storage)}.</div>`;
       return;
     }
     list.innerHTML = files.map(f => {
-      let iconHtml = '';
-      if (f.icon_ref) {
-        const cached = fileIconCache.get(f.icon_ref);
-        if (cached === true) {
-          iconHtml = `<img class="printer-file-icon" src="/api/printer/icon?ref=${encodeURIComponent(f.icon_ref)}" alt="">`;
-        } else if (cached !== false) {
-          iconHtml = `<img class="printer-file-icon" src="/api/printer/icon?ref=${encodeURIComponent(f.icon_ref)}" alt=""
-            data-icon-ref="${esc(f.icon_ref)}">`;
-        }
+      const iconKey = `${f.storage}/${f.path}`;
+      const iconUrl = `/api/printer/file-icon/${f.storage}/${f.path.split('/').map(encodeURIComponent).join('/')}`;
+      const cached  = fileIconCache.get(iconKey);
+      let iconHtml;
+      if (cached === true) {
+        iconHtml = `<img class="printer-file-icon" src="${iconUrl}" alt="">`;
+      } else if (cached === false) {
+        iconHtml = `<div class="printer-file-icon printer-file-icon--placeholder">◻</div>`;
+      } else {
+        iconHtml = `<button class="printer-file-icon-btn" data-action="preview-icon"
+          data-icon-key="${esc(iconKey)}" data-icon-url="${esc(iconUrl)}" title="Load preview">&#128247;</button>`;
       }
+      const sizeTxt = f.size ? fmtBytes(f.size) : '';
+      const dateTxt = f.timestamp ? fmtDate(f.timestamp) : '';
+      const meta    = [sizeTxt, dateTxt].filter(Boolean).join(' · ');
       return `
       <div class="printer-file-item">
         ${iconHtml}
         <div class="printer-file-info">
-          <div class="printer-file-name" title="${esc(f.path)}">${esc(f.display_name)}</div>
-          <div class="printer-file-meta">${fmtBytes(f.size)}${f.timestamp ? ' &middot; ' + fmtDate(f.timestamp) : ''}</div>
+          <div class="printer-file-name printer-file-name--link"
+               data-action="preview-file"
+               data-storage="${esc(f.storage)}"
+               data-path="${esc(f.path)}"
+               data-display-name="${esc(f.display_name)}"
+               data-timestamp="${f.timestamp || ''}"
+               title="${esc(f.path)}">${esc(f.display_name)}</div>
+          <div class="printer-file-meta">${meta}</div>
         </div>
         <button class="btn btn-primary btn-sm"
                 data-action="print-file"
@@ -1272,15 +1305,56 @@ async function loadPrinterFiles(storage) {
       </div>`;
     }).join('');
 
-    // Wire up cache callbacks for any newly injected icons
-    list.querySelectorAll('img.printer-file-icon[data-icon-ref]').forEach(img => {
-      const ref = img.dataset.iconRef;
-      img.onload  = () => { fileIconCache.set(ref, true);  img.removeAttribute('data-icon-ref'); };
-      img.onerror = () => { fileIconCache.set(ref, false); img.remove(); };
-    });
   } catch (e) {
     list.innerHTML = `<div class="printer-files-msg printer-files-err">Error: ${esc(e.message)}</div>`;
   }
+}
+
+function openFilePreview(dataset) {
+  const { storage, path, displayName, timestamp } = dataset;
+  const iconUrl = `/api/printer/file-icon/${storage}/${path.split('/').map(encodeURIComponent).join('/')}`;
+
+  const img  = document.getElementById('file-preview-img');
+  const name = document.getElementById('file-preview-name');
+  const meta = document.getElementById('file-preview-meta');
+
+  img.src = '';
+  img.classList.add('hidden');
+  name.textContent = displayName;
+  meta.textContent = timestamp ? fmtDate(Number(timestamp)) : '';
+
+  img.onload  = () => img.classList.remove('hidden');
+  img.onerror = () => img.classList.add('hidden');
+  img.src = iconUrl;
+
+  document.getElementById('file-preview-overlay').classList.remove('hidden');
+}
+
+function closeFilePreview() {
+  document.getElementById('file-preview-overlay').classList.add('hidden');
+  document.getElementById('file-preview-img').src = '';
+}
+
+function loadFileIcon(btn) {
+  const { iconKey, iconUrl } = btn.dataset;
+  btn.disabled = true;
+  btn.textContent = '…';
+
+  const img = document.createElement('img');
+  img.className = 'printer-file-icon';
+  img.alt = '';
+  img.onload = () => {
+    fileIconCache.set(iconKey, true);
+    btn.replaceWith(img);
+  };
+  img.onerror = () => {
+    fileIconCache.set(iconKey, false);
+    const ph = document.createElement('div');
+    ph.className = 'printer-file-icon printer-file-icon--placeholder';
+    ph.textContent = '◻';
+    btn.replaceWith(ph);
+  };
+  img.src = iconUrl;
 }
 
 async function printFile(storage, path, name) {
