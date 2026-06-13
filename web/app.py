@@ -197,6 +197,14 @@ def _migrate_db() -> None:
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_yt_filename ON youtube_uploads(filename)",
         "ALTER TABLE youtube_uploads ADD COLUMN pct INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE recordings ADD COLUMN file_deleted INTEGER NOT NULL DEFAULT 0",
+        (
+            "CREATE TABLE IF NOT EXISTS printer_files ("
+            "  storage TEXT NOT NULL, path TEXT NOT NULL, name TEXT NOT NULL,"
+            "  display_name TEXT, size INTEGER DEFAULT 0,"
+            "  file_timestamp INTEGER DEFAULT 0, last_seen_ts INTEGER NOT NULL,"
+            "  PRIMARY KEY (storage, path)"
+            ")"
+        ),
     ]
     try:
         with _open_db_rw() as conn:
@@ -998,10 +1006,63 @@ def _flatten_files(node, storage: str, prefix: str = "") -> list[dict]:
     return results
 
 
+def _files_from_db(storage: str) -> list[dict]:
+    """Return cached printer files from DB, enriched with print job stats and icon_cached flag."""
+    with _open_db() as conn:
+        rows = conn.execute(
+            """SELECT pf.*,
+               (SELECT COUNT(*) FROM print_jobs pj WHERE pj.display_name = pf.display_name) AS print_count,
+               (SELECT MAX(start_ts) FROM print_jobs pj WHERE pj.display_name = pf.display_name) AS last_print_ts,
+               (SELECT end_state FROM print_jobs pj WHERE pj.display_name = pf.display_name
+                ORDER BY start_ts DESC LIMIT 1) AS last_print_state
+               FROM printer_files pf WHERE pf.storage = ?
+               ORDER BY pf.file_timestamp DESC""",
+            (storage,),
+        ).fetchall()
+    result = []
+    for r in rows:
+        cache_path = _icon_cache_path(f"{r['storage']}/{r['path']}")
+        result.append({
+            "name":             r["name"],
+            "display_name":     r["display_name"] or r["name"],
+            "size":             r["size"],
+            "timestamp":        r["file_timestamp"],
+            "storage":          r["storage"],
+            "path":             r["path"],
+            "icon_cached":      cache_path.exists(),
+            "print_count":      r["print_count"] or 0,
+            "last_print_ts":    r["last_print_ts"],
+            "last_print_state": r["last_print_state"],
+        })
+    return result
+
+
+_FILES_CACHE_TTL = 60  # seconds before re-fetching from printer
+
+
 @app.get("/api/printer/files/{storage}")
-def list_printer_files(storage: str):
+def list_printer_files(storage: str, refresh: bool = False):
     if storage not in ("usb", "local"):
         raise HTTPException(400, "storage must be 'usb' or 'local'")
+
+    now = int(time.time())
+
+    # Serve from DB cache unless forced or stale
+    if not refresh:
+        try:
+            cached = _files_from_db(storage)
+            if cached:
+                oldest = min(
+                    (r.get("last_seen_ts", 0) for r in
+                     _open_db().execute("SELECT last_seen_ts FROM printer_files WHERE storage=?", (storage,)).fetchall()),
+                    default=0,
+                )
+                if now - oldest < _FILES_CACHE_TTL:
+                    return cached
+        except Exception:
+            pass
+
+    # Fetch fresh from printer
     host, api_key = _pl_config()
     try:
         r = requests.get(
@@ -1010,14 +1071,48 @@ def list_printer_files(storage: str):
             timeout=10,
         )
         r.raise_for_status()
-        data = r.json()
+        fresh = _flatten_files(r.json(), storage)
     except requests.HTTPError as exc:
+        # Fall back to DB cache rather than surfacing an error
+        try:
+            cached = _files_from_db(storage)
+            if cached:
+                return cached
+        except Exception:
+            pass
         raise HTTPException(exc.response.status_code, exc.response.text[:200])
     except Exception as exc:
+        try:
+            cached = _files_from_db(storage)
+            if cached:
+                return cached
+        except Exception:
+            pass
         raise HTTPException(503, str(exc))
-    files = _flatten_files(data, storage)
-    files.sort(key=lambda f: f["timestamp"], reverse=True)
-    return files
+
+    # Persist fresh list to DB
+    try:
+        with _open_db_rw() as conn:
+            for f in fresh:
+                conn.execute(
+                    """INSERT INTO printer_files
+                         (storage, path, name, display_name, size, file_timestamp, last_seen_ts)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(storage, path) DO UPDATE SET
+                         name=excluded.name, display_name=excluded.display_name,
+                         size=excluded.size, file_timestamp=excluded.file_timestamp,
+                         last_seen_ts=excluded.last_seen_ts""",
+                    (f["storage"], f["path"], f["name"], f["display_name"],
+                     f["size"], f["timestamp"], now),
+                )
+            conn.commit()
+    except Exception as exc:
+        logger.warning("Could not cache printer files in DB: %s", exc)
+
+    try:
+        return _files_from_db(storage)
+    except Exception:
+        return fresh
 
 
 @app.get("/api/printer/files-raw/{storage}")

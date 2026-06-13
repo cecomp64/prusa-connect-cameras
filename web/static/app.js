@@ -22,8 +22,6 @@ let statsRefreshTimer = null;
 let lastRecordingsKey = null;
 let printerConfirmPending = null; // { label, fn } while awaiting inline confirmation
 let printerFilesOpen = false;
-const fileIconCache   = new Map(); // `${storage}/${path}` → true (loaded) | false (error)
-const printerFilesCache = new Map(); // storage → files[]
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -92,12 +90,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Printer file browser
   document.getElementById('printer-files-refresh').addEventListener('click', () => {
-    const storage = document.getElementById('printer-files-storage').value;
-    printerFilesCache.delete(storage);
-    loadPrinterFiles(storage, true);
+    loadPrinterFiles('usb', true);
   });
   document.getElementById('printer-files-close').addEventListener('click', closePrinterFiles);
-  document.getElementById('printer-files-storage').addEventListener('change', e => loadPrinterFiles(e.target.value, true));
   document.getElementById('printer-files-list').addEventListener('click', e => {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
@@ -1240,7 +1235,7 @@ async function printerStop() {
 function togglePrinterFiles() {
   printerFilesOpen = !printerFilesOpen;
   document.getElementById('printer-files-panel').classList.toggle('hidden', !printerFilesOpen);
-  if (printerFilesOpen) loadPrinterFiles(document.getElementById('printer-files-storage').value);
+  if (printerFilesOpen) loadPrinterFiles('usb');
 }
 
 function closePrinterFiles() {
@@ -1250,64 +1245,65 @@ function closePrinterFiles() {
 
 async function loadPrinterFiles(storage, force = false) {
   const list = document.getElementById('printer-files-list');
+  list.innerHTML = '<div class="printer-files-msg">Loading…</div>';
 
-  let files = printerFilesCache.get(storage);
-  if (!files || force) {
-    list.innerHTML = '<div class="printer-files-msg">Loading…</div>';
-    try {
-      files = await api(`/api/printer/files/${encodeURIComponent(storage)}`);
-      printerFilesCache.set(storage, files);
-    } catch (e) {
-      list.innerHTML = `<div class="printer-files-msg printer-files-err">Error: ${esc(e.message)}</div>`;
-      return;
-    }
-  }
-
+  let files;
   try {
-    if (!files.length) {
-      list.innerHTML = `<div class="printer-files-msg">No print files found on ${esc(storage)}.</div>`;
-      return;
-    }
-    list.innerHTML = files.map(f => {
-      const iconKey = `${f.storage}/${f.path}`;
-      const iconUrl = `/api/printer/file-icon/${f.storage}/${f.path.split('/').map(encodeURIComponent).join('/')}`;
-      const cached  = fileIconCache.get(iconKey);
-      let iconHtml;
-      if (cached === true) {
-        iconHtml = `<img class="printer-file-icon" src="${iconUrl}" alt="">`;
-      } else if (cached === false) {
-        iconHtml = `<div class="printer-file-icon printer-file-icon--placeholder">◻</div>`;
-      } else {
-        iconHtml = `<button class="printer-file-icon-btn" data-action="preview-icon"
-          data-icon-key="${esc(iconKey)}" data-icon-url="${esc(iconUrl)}" title="Load preview">&#128247;</button>`;
-      }
-      const sizeTxt = f.size ? fmtBytes(f.size) : '';
-      const dateTxt = f.timestamp ? fmtDate(f.timestamp) : '';
-      const meta    = [sizeTxt, dateTxt].filter(Boolean).join(' · ');
-      return `
-      <div class="printer-file-item">
-        ${iconHtml}
-        <div class="printer-file-info">
-          <div class="printer-file-name printer-file-name--link"
-               data-action="preview-file"
-               data-storage="${esc(f.storage)}"
-               data-path="${esc(f.path)}"
-               data-display-name="${esc(f.display_name)}"
-               data-timestamp="${f.timestamp || ''}"
-               title="${esc(f.path)}">${esc(f.display_name)}</div>
-          <div class="printer-file-meta">${meta}</div>
-        </div>
-        <button class="btn btn-primary btn-sm"
-                data-action="print-file"
-                data-storage="${esc(f.storage)}"
-                data-path="${esc(f.path)}"
-                data-name="${esc(f.display_name)}">&#9654; Print</button>
-      </div>`;
-    }).join('');
-
+    const url = `/api/printer/files/${encodeURIComponent(storage)}${force ? '?refresh=true' : ''}`;
+    files = await api(url);
   } catch (e) {
     list.innerHTML = `<div class="printer-files-msg printer-files-err">Error: ${esc(e.message)}</div>`;
+    return;
   }
+
+  if (!files.length) {
+    list.innerHTML = `<div class="printer-files-msg">No print files found on ${esc(storage)}.</div>`;
+    return;
+  }
+
+  list.innerHTML = files.map(f => {
+    const iconUrl = `/api/printer/file-icon/${f.storage}/${f.path.split('/').map(encodeURIComponent).join('/')}`;
+    const iconKey = `${f.storage}/${f.path}`;
+    const iconHtml = f.icon_cached
+      ? `<img class="printer-file-icon" src="${iconUrl}" alt=""
+             onerror="this.outerHTML='<div class=\\'printer-file-icon printer-file-icon--placeholder\\'>◻</div>'">`
+      : `<button class="printer-file-icon-btn" data-action="preview-icon"
+             data-icon-key="${esc(iconKey)}" data-icon-url="${esc(iconUrl)}" title="Load preview">&#128247;</button>`;
+
+    const sizeTxt = f.size ? fmtBytes(f.size) : '';
+    const dateTxt = f.timestamp ? fmtDate(f.timestamp) : '';
+    const meta    = [sizeTxt, dateTxt].filter(Boolean).join(' · ');
+
+    let printMeta = '';
+    if (f.print_count > 0) {
+      const lastDate = f.last_print_ts
+        ? new Date(f.last_print_ts * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+        : '';
+      const stateStr = f.last_print_state ? ` · ${f.last_print_state}` : '';
+      printMeta = `<div class="printer-file-prints">Printed ${f.print_count}×${lastDate ? ' · Last: ' + lastDate : ''}${stateStr}</div>`;
+    }
+
+    return `
+    <div class="printer-file-item">
+      ${iconHtml}
+      <div class="printer-file-info">
+        <div class="printer-file-name printer-file-name--link"
+             data-action="preview-file"
+             data-storage="${esc(f.storage)}"
+             data-path="${esc(f.path)}"
+             data-display-name="${esc(f.display_name)}"
+             data-timestamp="${f.timestamp || ''}"
+             title="${esc(f.path)}">${esc(f.display_name)}</div>
+        <div class="printer-file-meta">${meta}</div>
+        ${printMeta}
+      </div>
+      <button class="btn btn-primary btn-sm"
+              data-action="print-file"
+              data-storage="${esc(f.storage)}"
+              data-path="${esc(f.path)}"
+              data-name="${esc(f.display_name)}">&#9654; Print</button>
+    </div>`;
+  }).join('');
 }
 
 function openFilePreview(dataset) {
@@ -1336,19 +1332,15 @@ function closeFilePreview() {
 }
 
 function loadFileIcon(btn) {
-  const { iconKey, iconUrl } = btn.dataset;
+  const { iconUrl } = btn.dataset;
   btn.disabled = true;
   btn.textContent = '…';
 
   const img = document.createElement('img');
   img.className = 'printer-file-icon';
   img.alt = '';
-  img.onload = () => {
-    fileIconCache.set(iconKey, true);
-    btn.replaceWith(img);
-  };
+  img.onload = () => btn.replaceWith(img);
   img.onerror = () => {
-    fileIconCache.set(iconKey, false);
     const ph = document.createElement('div');
     ph.className = 'printer-file-icon printer-file-icon--placeholder';
     ph.textContent = '◻';
@@ -1395,7 +1387,7 @@ function doUpload() {
 
   const file        = fileInput.files[0];
   const printAfter  = document.getElementById('upload-print-after').checked;
-  const storage     = document.getElementById('upload-storage').value;
+  const storage     = 'usb';
   const btn         = document.getElementById('upload-confirm-btn');
   const statusEl    = document.getElementById('upload-status');
   const progressWrap = document.getElementById('upload-progress-wrap');

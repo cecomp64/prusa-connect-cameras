@@ -779,17 +779,6 @@ em.muted { font-style: normal; }
   flex: 1;
 }
 
-.files-storage-select {
-  background: var(--surface-3);
-  color: var(--text);
-  border: 1px solid var(--border-2);
-  border-radius: var(--r-sm);
-  padding: 3px 8px;
-  font-size: 12px;
-  font-family: var(--font);
-  cursor: pointer;
-}
-
 .printer-files-list {
   max-height: 280px;
   overflow-y: auto;
@@ -848,6 +837,7 @@ em.muted { font-style: normal; }
 .printer-file-name--link { cursor: pointer; color: var(--accent, #fa6831); }
 .printer-file-name--link:hover { text-decoration: underline; }
 .printer-file-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.printer-file-prints { font-size: 11px; color: var(--green); margin-top: 2px; }
 
 .printer-files-msg {
   padding: 14px 12px;
