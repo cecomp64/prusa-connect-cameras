@@ -310,6 +310,27 @@ def get_system_status():
     disk = psutil.disk_usage('/')
     uptime_secs = int(time.time() - psutil.boot_time())
 
+    # Raspberry Pi throttle / under-voltage detection via vcgencmd
+    throttle: dict = {}
+    try:
+        result = subprocess.run(
+            ["vcgencmd", "get_throttled"],
+            capture_output=True, text=True, timeout=2
+        )
+        val = int(result.stdout.strip().split("=")[1], 16)
+        throttle = {
+            "under_voltage":              bool(val & 0x00001),
+            "freq_capped":                bool(val & 0x00002),
+            "throttled":                  bool(val & 0x00004),
+            "soft_temp_limit":            bool(val & 0x00008),
+            "under_voltage_occurred":     bool(val & 0x10000),
+            "freq_capped_occurred":       bool(val & 0x20000),
+            "throttled_occurred":         bool(val & 0x40000),
+            "soft_temp_limit_occurred":   bool(val & 0x80000),
+        }
+    except Exception:
+        pass
+
     return {
         "cpu_temp":   cpu_temp,
         "cpu_usage":  psutil.cpu_percent(interval=0.1),
@@ -318,6 +339,7 @@ def get_system_status():
         "disk_free":  round(disk.free / 1024 / 1024 / 1024, 1),
         "disk_total": round(disk.total / 1024 / 1024 / 1024, 1),
         "uptime":     uptime_secs,
+        **throttle,
     }
 
 
@@ -598,6 +620,26 @@ def get_printer_thumbnail():
         raise HTTPException(503, str(exc))
 
 
+@app.get("/api/printer/icon")
+def get_printer_file_icon(ref: str):
+    """Proxy a file icon/thumbnail from PrusaLink, keyed by its refs path."""
+    host, api_key = _pl_config()
+    if not ref.startswith("/"):
+        raise HTTPException(400, "Invalid ref")
+    try:
+        img = requests.get(f"{host}{ref}", headers={"X-Api-Key": api_key}, timeout=10)
+        img.raise_for_status()
+        return Response(
+            content=img.content,
+            media_type=img.headers.get("content-type", "image/png"),
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(503, str(exc))
+
+
 @app.post("/api/printer/control/pause")
 def printer_pause():
     host, api_key = _pl_config()
@@ -709,6 +751,7 @@ def _flatten_files(node, storage: str, prefix: str = "") -> list[dict]:
             ftype not in ("FOLDER",) and name.lower().endswith((".gcode", ".bgcode"))
         )
         if is_print and name:
+            refs = node.get("refs") or {}
             results.append({
                 "name":         name,
                 "display_name": node.get("display_name") or name,
@@ -716,6 +759,7 @@ def _flatten_files(node, storage: str, prefix: str = "") -> list[dict]:
                 "timestamp":    node.get("m_timestamp") or node.get("date") or 0,
                 "storage":      storage,
                 "path":         path,
+                "icon_ref":     refs.get("icon") or refs.get("thumbnail"),
             })
         for child in node.get("children") or []:
             results.extend(_flatten_files(child, storage, path if name and name != "/" else prefix))

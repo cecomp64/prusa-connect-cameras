@@ -22,6 +22,7 @@ let statsRefreshTimer = null;
 let lastRecordingsKey = null;
 let printerConfirmPending = null; // { label, fn } while awaiting inline confirmation
 let printerFilesOpen = false;
+const fileIconCache = new Map(); // icon_ref → true (loaded) | false (error)
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -191,8 +192,7 @@ function buildCameraCard(cam) {
     ? `<iframe src="${esc(cam.webrtc_url)}" frameborder="0" allow="autoplay" allowfullscreen></iframe>`
     : `<div class="stream-no-url">
          <span>&#128247;</span>
-         <span>No WebRTC URL set</span>
-         <button class="btn btn-ghost btn-sm" data-action="edit">Configure</button>
+         <span>No WebRTC URL set — configure in Settings</span>
        </div>`;
 
   card.innerHTML = `
@@ -203,13 +203,11 @@ function buildCameraCard(cam) {
       </span>
       <div class="cam-actions">
         <button class="btn btn-ghost btn-sm btn-rec${isRecording ? ' hidden' : ''}" data-action="start-rec">&#9679; Record</button>
-        <button class="btn btn-ghost btn-sm" data-action="edit">Edit</button>
       </div>
     </div>
   `;
 
   card.addEventListener('click', e => {
-    if (e.target.closest('[data-action="edit"]'))      openModal(cam);
     if (e.target.closest('[data-action="start-rec"]')) startManualRecording(cam.name);
   });
 
@@ -287,6 +285,25 @@ async function loadSystemStatus() {
   document.getElementById('sys-disk-free').textContent = fmtGB(data.disk_free);
   document.getElementById('sys-disk-total').textContent = data.disk_total != null ? `/ ${data.disk_total} GB` : '';
   document.getElementById('sys-uptime').textContent    = data.uptime != null ? fmtDuration(data.uptime) : '—';
+
+  // Raspberry Pi throttle / under-voltage alerts
+  const alertsEl = document.getElementById('sys-alerts');
+  const alerts = [];
+  if (data.under_voltage)   alerts.push({ cls: 'sys-alert--error', text: 'Under Voltage' });
+  if (data.throttled)       alerts.push({ cls: 'sys-alert--error', text: 'CPU Throttling' });
+  if (data.soft_temp_limit) alerts.push({ cls: 'sys-alert--warn',  text: 'Soft Temp Limit' });
+  if (!data.under_voltage && data.under_voltage_occurred)
+    alerts.push({ cls: 'sys-alert--warn', text: 'Under Voltage (since boot)' });
+  if (!data.throttled && data.throttled_occurred)
+    alerts.push({ cls: 'sys-alert--warn', text: 'Throttled (since boot)' });
+
+  if (alerts.length > 0) {
+    alertsEl.innerHTML = alerts.map(a => `<span class="sys-alert ${a.cls}">${a.text}</span>`).join('');
+    alertsEl.classList.remove('hidden');
+  } else {
+    alertsEl.innerHTML = '';
+    alertsEl.classList.add('hidden');
+  }
 }
 
 // ── Stats tab ─────────────────────────────────────────────────────────────────
@@ -1229,8 +1246,20 @@ async function loadPrinterFiles(storage) {
       list.innerHTML = `<div class="printer-files-msg">No print files found on ${esc(storage)}.</div>`;
       return;
     }
-    list.innerHTML = files.map(f => `
+    list.innerHTML = files.map(f => {
+      let iconHtml = '';
+      if (f.icon_ref) {
+        const cached = fileIconCache.get(f.icon_ref);
+        if (cached === true) {
+          iconHtml = `<img class="printer-file-icon" src="/api/printer/icon?ref=${encodeURIComponent(f.icon_ref)}" alt="">`;
+        } else if (cached !== false) {
+          iconHtml = `<img class="printer-file-icon" src="/api/printer/icon?ref=${encodeURIComponent(f.icon_ref)}" alt=""
+            data-icon-ref="${esc(f.icon_ref)}">`;
+        }
+      }
+      return `
       <div class="printer-file-item">
+        ${iconHtml}
         <div class="printer-file-info">
           <div class="printer-file-name" title="${esc(f.path)}">${esc(f.display_name)}</div>
           <div class="printer-file-meta">${fmtBytes(f.size)}${f.timestamp ? ' &middot; ' + fmtDate(f.timestamp) : ''}</div>
@@ -1240,8 +1269,15 @@ async function loadPrinterFiles(storage) {
                 data-storage="${esc(f.storage)}"
                 data-path="${esc(f.path)}"
                 data-name="${esc(f.display_name)}">&#9654; Print</button>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
+
+    // Wire up cache callbacks for any newly injected icons
+    list.querySelectorAll('img.printer-file-icon[data-icon-ref]').forEach(img => {
+      const ref = img.dataset.iconRef;
+      img.onload  = () => { fileIconCache.set(ref, true);  img.removeAttribute('data-icon-ref'); };
+      img.onerror = () => { fileIconCache.set(ref, false); img.remove(); };
+    });
   } catch (e) {
     list.innerHTML = `<div class="printer-files-msg printer-files-err">Error: ${esc(e.message)}</div>`;
   }

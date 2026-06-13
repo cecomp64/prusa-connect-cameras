@@ -804,6 +804,14 @@ em.muted { font-style: normal; }
 }
 .printer-file-item:last-child { border-bottom: none; }
 
+.printer-file-icon {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: var(--surface-2, #0d1117);
+  flex-shrink: 0;
+}
 .printer-file-info { flex: 1; min-width: 0; }
 .printer-file-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .printer-file-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
@@ -829,6 +837,49 @@ em.muted { font-style: normal; }
   display: grid;
   grid-template-columns: repeat(4, 1fr);
 }
+
+.sys-alerts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  background: rgba(0,0,0,.15);
+}
+
+.sys-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+
+.sys-alert::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sys-alert--error {
+  background: rgba(248,81,73,.15);
+  color: var(--red);
+  border: 1px solid rgba(248,81,73,.3);
+}
+.sys-alert--error::before { background: var(--red); }
+
+.sys-alert--warn {
+  background: rgba(210,153,34,.12);
+  color: var(--yellow);
+  border: 1px solid rgba(210,153,34,.25);
+}
+.sys-alert--warn::before { background: var(--yellow); }
 
 /* ── Stats tab ───────────────────────────────────────────────────────────────── */
 .stats-summary-row {
