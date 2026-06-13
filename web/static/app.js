@@ -97,7 +97,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const btn = e.target.closest('[data-action]');
     if (!btn) return;
     if (btn.dataset.action === 'print-file')   printFile(btn.dataset.storage, btn.dataset.path, btn.dataset.name);
-    if (btn.dataset.action === 'preview-icon') loadFileIcon(btn);
     if (btn.dataset.action === 'preview-file') openFilePreview(btn.dataset);
   });
 
@@ -1245,7 +1244,7 @@ function closePrinterFiles() {
 
 async function loadPrinterFiles(storage, force = false) {
   const list = document.getElementById('printer-files-list');
-  list.innerHTML = '<div class="printer-files-msg">Loading…</div>';
+  if (force) list.innerHTML = '<div class="printer-files-msg">Refreshing from printer…</div>';
 
   let files;
   try {
@@ -1263,12 +1262,8 @@ async function loadPrinterFiles(storage, force = false) {
 
   list.innerHTML = files.map(f => {
     const iconUrl = `/api/printer/file-icon/${f.storage}/${f.path.split('/').map(encodeURIComponent).join('/')}`;
-    const iconKey = `${f.storage}/${f.path}`;
-    const iconHtml = f.icon_cached
-      ? `<img class="printer-file-icon" src="${iconUrl}" alt=""
-             onerror="this.outerHTML='<div class=\\'printer-file-icon printer-file-icon--placeholder\\'>◻</div>'">`
-      : `<button class="printer-file-icon-btn" data-action="preview-icon"
-             data-icon-key="${esc(iconKey)}" data-icon-url="${esc(iconUrl)}" title="Load preview">&#128247;</button>`;
+    const iconHtml = `<img class="printer-file-icon" src="${iconUrl}" alt="" loading="lazy"
+      onerror="this.outerHTML='<div class=\\'printer-file-icon printer-file-icon--placeholder\\'>◻</div>'">`;
 
     const sizeTxt = f.size ? fmtBytes(f.size) : '';
     const dateTxt = f.timestamp ? fmtDate(f.timestamp) : '';
@@ -1329,24 +1324,6 @@ function openFilePreview(dataset) {
 function closeFilePreview() {
   document.getElementById('file-preview-overlay').classList.add('hidden');
   document.getElementById('file-preview-img').src = '';
-}
-
-function loadFileIcon(btn) {
-  const { iconUrl } = btn.dataset;
-  btn.disabled = true;
-  btn.textContent = '…';
-
-  const img = document.createElement('img');
-  img.className = 'printer-file-icon';
-  img.alt = '';
-  img.onload = () => btn.replaceWith(img);
-  img.onerror = () => {
-    const ph = document.createElement('div');
-    ph.className = 'printer-file-icon printer-file-icon--placeholder';
-    ph.textContent = '◻';
-    btn.replaceWith(ph);
-  };
-  img.src = iconUrl;
 }
 
 async function printFile(storage, path, name) {

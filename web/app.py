@@ -367,7 +367,7 @@ def get_stats():
             ).fetchone()
             longest_row = conn.execute(
                 "SELECT duration_seconds, display_name FROM print_jobs "
-                "WHERE end_ts IS NOT NULL ORDER BY duration_seconds DESC LIMIT 1"
+                "WHERE end_ts IS NOT NULL AND end_state != 'IDLE' ORDER BY duration_seconds DESC LIMIT 1"
             ).fetchone()
             month_rows = conn.execute(
                 "SELECT strftime('%Y-%m', datetime(start_ts,'unixepoch')) AS month, "
@@ -629,6 +629,7 @@ def get_printer_thumbnail():
 
 
 _ICON_CACHE_DIR = Path(os.environ.get("ICON_CACHE_DIR", "/var/lib/prusa-cameras/icon-cache"))
+_icon_semaphore = threading.Semaphore(2)  # max 2 concurrent printer icon fetches
 
 
 def _icon_cache_path(key: str) -> Path:
@@ -821,52 +822,58 @@ def get_printer_file_icon(storage: str, path: str):
             headers={"Cache-Control": "public, max-age=604800, immutable"},
         )
 
-    host, api_key = _pl_config()
-    auth_header = {"X-Api-Key": api_key}
+    if not _icon_semaphore.acquire(timeout=30):
+        raise HTTPException(503, "Too many icon requests in progress — try again shortly")
 
-    # ── 1. Try PrusaLink /thumb/ endpoints ───────────────────────────────────
-    # /thumb/l/ (large) works where /thumb/s/ (small) may not.
-    for thumb_size in ("l", "s"):
-        try:
-            r = requests.get(f"{host}/thumb/{thumb_size}/{storage}/{path}", headers=auth_header, timeout=10)
-            if r.ok and len(r.content) > 64:
-                mime = r.headers.get("content-type", "image/png").split(";")[0].strip()
-                return _cache_and_serve_icon(cache_path, r.content, mime)
-            logger.debug("PrusaLink /thumb/%s/ returned %d for %s/%s", thumb_size, r.status_code, storage, path)
-        except Exception as exc:
-            logger.debug("PrusaLink /thumb/%s/ failed: %s", thumb_size, exc)
+    try:
+        host, api_key = _pl_config()
+        auth_header = {"X-Api-Key": api_key}
 
-    # ── 2. Download beginning of file and extract thumbnail ourselves ─────────
-    download_candidates = [
-        f"{host}/{storage}/{path}",               # WebDAV download path
-        f"{host}/api/v1/files/{storage}/{path}",  # API v1 (may return JSON for some firmware)
-    ]
-    raw = None
-    for download_url in download_candidates:
-        for extra_headers in [{"Range": "bytes=0-524287"}, {}]:
+        # ── 1. Try PrusaLink /thumb/ endpoints ───────────────────────────────────
+        # /thumb/l/ (large) works where /thumb/s/ (small) may not.
+        for thumb_size in ("l", "s"):
             try:
-                r = requests.get(
-                    download_url,
-                    headers={**auth_header, "Accept": "application/octet-stream", **extra_headers},
-                    timeout=20,
-                    stream=True,
-                )
-                if r.status_code not in (200, 206):
-                    logger.debug("Download %s → HTTP %d", download_url, r.status_code)
-                    continue
-                chunks, total = [], 0
-                for chunk in r.iter_content(32768):
-                    chunks.append(chunk)
-                    total += len(chunk)
-                    if total >= 524288:
-                        break
-                raw = b"".join(chunks)
-                logger.debug("Downloaded %d bytes from %s", len(raw), download_url)
-                break  # got data
+                r = requests.get(f"{host}/thumb/{thumb_size}/{storage}/{path}", headers=auth_header, timeout=10)
+                if r.ok and len(r.content) > 64:
+                    mime = r.headers.get("content-type", "image/png").split(";")[0].strip()
+                    return _cache_and_serve_icon(cache_path, r.content, mime)
+                logger.debug("PrusaLink /thumb/%s/ returned %d for %s/%s", thumb_size, r.status_code, storage, path)
             except Exception as exc:
-                logger.debug("Download %s failed: %s", download_url, exc)
-        if raw is not None:
-            break
+                logger.debug("PrusaLink /thumb/%s/ failed: %s", thumb_size, exc)
+
+        # ── 2. Download beginning of file and extract thumbnail ourselves ─────────
+        download_candidates = [
+            f"{host}/{storage}/{path}",               # WebDAV download path
+            f"{host}/api/v1/files/{storage}/{path}",  # API v1 (may return JSON for some firmware)
+        ]
+        raw = None
+        for download_url in download_candidates:
+            for extra_headers in [{"Range": "bytes=0-524287"}, {}]:
+                try:
+                    r = requests.get(
+                        download_url,
+                        headers={**auth_header, "Accept": "application/octet-stream", **extra_headers},
+                        timeout=20,
+                        stream=True,
+                    )
+                    if r.status_code not in (200, 206):
+                        logger.debug("Download %s → HTTP %d", download_url, r.status_code)
+                        continue
+                    chunks, total = [], 0
+                    for chunk in r.iter_content(32768):
+                        chunks.append(chunk)
+                        total += len(chunk)
+                        if total >= 524288:
+                            break
+                    raw = b"".join(chunks)
+                    logger.debug("Downloaded %d bytes from %s", len(raw), download_url)
+                    break  # got data
+                except Exception as exc:
+                    logger.debug("Download %s failed: %s", download_url, exc)
+            if raw is not None:
+                break
+    finally:
+        _icon_semaphore.release()
 
     if not raw:
         raise HTTPException(503, "Could not download file from printer for thumbnail extraction")
@@ -1021,7 +1028,6 @@ def _files_from_db(storage: str) -> list[dict]:
         ).fetchall()
     result = []
     for r in rows:
-        cache_path = _icon_cache_path(f"{r['storage']}/{r['path']}")
         result.append({
             "name":             r["name"],
             "display_name":     r["display_name"] or r["name"],
@@ -1029,7 +1035,6 @@ def _files_from_db(storage: str) -> list[dict]:
             "timestamp":        r["file_timestamp"],
             "storage":          r["storage"],
             "path":             r["path"],
-            "icon_cached":      cache_path.exists(),
             "print_count":      r["print_count"] or 0,
             "last_print_ts":    r["last_print_ts"],
             "last_print_state": r["last_print_state"],
@@ -1037,32 +1042,21 @@ def _files_from_db(storage: str) -> list[dict]:
     return result
 
 
-_FILES_CACHE_TTL = 60  # seconds before re-fetching from printer
-
-
 @app.get("/api/printer/files/{storage}")
 def list_printer_files(storage: str, refresh: bool = False):
     if storage not in ("usb", "local"):
         raise HTTPException(400, "storage must be 'usb' or 'local'")
 
-    now = int(time.time())
-
-    # Serve from DB cache unless forced or stale
+    # Always serve from DB instantly unless explicitly refreshing or DB is empty
     if not refresh:
         try:
             cached = _files_from_db(storage)
             if cached:
-                oldest = min(
-                    (r.get("last_seen_ts", 0) for r in
-                     _open_db().execute("SELECT last_seen_ts FROM printer_files WHERE storage=?", (storage,)).fetchall()),
-                    default=0,
-                )
-                if now - oldest < _FILES_CACHE_TTL:
-                    return cached
+                return cached
         except Exception:
             pass
 
-    # Fetch fresh from printer
+    # Fetch from printer: either refresh=True or DB was empty (first run)
     host, api_key = _pl_config()
     try:
         r = requests.get(
@@ -1073,24 +1067,19 @@ def list_printer_files(storage: str, refresh: bool = False):
         r.raise_for_status()
         fresh = _flatten_files(r.json(), storage)
     except requests.HTTPError as exc:
-        # Fall back to DB cache rather than surfacing an error
         try:
-            cached = _files_from_db(storage)
-            if cached:
-                return cached
+            return _files_from_db(storage)
         except Exception:
             pass
         raise HTTPException(exc.response.status_code, exc.response.text[:200])
     except Exception as exc:
         try:
-            cached = _files_from_db(storage)
-            if cached:
-                return cached
+            return _files_from_db(storage)
         except Exception:
             pass
         raise HTTPException(503, str(exc))
 
-    # Persist fresh list to DB
+    now = int(time.time())
     try:
         with _open_db_rw() as conn:
             for f in fresh:
