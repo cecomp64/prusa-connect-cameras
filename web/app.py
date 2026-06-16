@@ -1129,6 +1129,8 @@ def print_file(storage: str, path: str):
     from urllib.parse import quote as urlquote
     if storage not in ("usb", "local"):
         raise HTTPException(400, "storage must be 'usb' or 'local'")
+    if path.startswith(f"{storage}/"):
+        path = path[len(storage) + 1:]
     host, api_key = _pl_config()
     try:
         r = requests.post(
