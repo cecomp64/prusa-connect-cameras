@@ -28,7 +28,10 @@ class Recorder:
 
     def start_all(self, label: str = "print") -> None:
         for cam in self._camera_cfgs:
-            self._start(cam, label)
+            try:
+                self._start(cam, label)
+            except Exception as exc:
+                logger.error("[%s] Failed to start recording: %s", cam.get("name", "?"), exc)
 
     def stop_all(self) -> list[str]:
         """Stop every active recording and return paths of completed files."""

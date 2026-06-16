@@ -64,19 +64,16 @@ class PrinterMonitor:
         # Restore state from DB so a service restart doesn't look like a fresh start.
         open_job = db.get_open_print_job()
         if open_job:
-            last_state_str = db.get_last_printer_state()
-            try:
-                self._last_state = PrinterState(last_state_str) if last_state_str else PrinterState.UNKNOWN
-            except ValueError:
-                self._last_state = PrinterState.UNKNOWN
             self._print_active    = True
             self._current_job_id   = open_job["id"]
             self._current_job_name = open_job["display_name"]
             self._pending_resume   = True
-            logger.info(
-                "Restored active print job %s (last state: %s)",
-                open_job["id"], self._last_state.value,
-            )
+            # Keep _last_state as UNKNOWN rather than restoring from DB.
+            # If the printer reached a non-ACTIVE state just before the crash
+            # (job still open, telemetry already shows IDLE), restoring IDLE
+            # would make _handle_transition see IDLE→IDLE and skip on_print_end.
+            # UNKNOWN guarantees a transition is always detected on the first poll.
+            logger.info("Restored active print job %s", open_job["id"])
 
     # ── Public interface ──────────────────────────────────────────────────────────
 
