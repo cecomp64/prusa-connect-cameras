@@ -1134,9 +1134,8 @@ def print_file(storage: str, path: str):
     host, api_key = _pl_config()
     try:
         r = requests.post(
-            f"{host}/api/files/{storage}/{urlquote(path)}",
-            headers={"X-Api-Key": api_key, "Content-Type": "application/json"},
-            json={"command": "select", "print": True},
+            f"{host}/api/v1/files/{storage}/{urlquote(path)}",
+            headers={"X-Api-Key": api_key},
             timeout=10,
         )
         r.raise_for_status()
