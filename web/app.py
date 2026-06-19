@@ -15,6 +15,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import re
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -387,6 +388,10 @@ def get_stats():
                 "SELECT COALESCE(end_state,'UNKNOWN') AS state, COUNT(*) AS count "
                 "FROM print_jobs WHERE end_ts IS NOT NULL GROUP BY state"
             ).fetchall()
+            material_rows = conn.execute(
+                "SELECT display_name FROM print_jobs "
+                "WHERE end_ts IS NOT NULL AND display_name IS NOT NULL"
+            ).fetchall()
             recent_rows = conn.execute(
                 "SELECT pj.id, "
                 "COALESCE(pj.display_name, "
@@ -400,7 +405,7 @@ def get_stats():
             ).fetchall()
     else:
         summary = {"cnt": 0, "total_secs": 0}
-        longest_row = month_rows = wd_rows = dur_rows = recent_rows = outcome_rows = []
+        longest_row = month_rows = wd_rows = dur_rows = recent_rows = outcome_rows = material_rows = []
 
     total_prints = summary["cnt"] if conn else 0
     total_secs   = summary["total_secs"] if conn else 0
@@ -470,6 +475,23 @@ def get_stats():
         if outcome_map.get(s, 0) > 0
     ]
 
+    # ── By material — derived from bgcode/gcode filename ─────────────────────────
+    _mat_after_layer = re.compile(r'_(\d+[\.,]\d+mm)[_-]([A-Z][A-Z0-9+_\-]*)_', re.IGNORECASE)
+    _mat_known = re.compile(r'\b(PLA\+?|PETG|ASA|ABS|TPU|PC|PA|NYLON|FLEX|PVA|HIPS|PP|CPE|PCTG)\b', re.IGNORECASE)
+    material_counts: dict[str, int] = {}
+    for r in (material_rows or []):
+        name = re.sub(r'\.(bgcode|gcode)$', '', r["display_name"] or "", flags=re.IGNORECASE)
+        m = _mat_after_layer.search(name)
+        mat = m.group(2).upper() if m else None
+        if not mat:
+            m2 = _mat_known.search(name)
+            mat = m2.group(1).upper() if m2 else "Unknown"
+        material_counts[mat] = material_counts.get(mat, 0) + 1
+    by_material = [
+        {"material": k, "count": v}
+        for k, v in sorted(material_counts.items(), key=lambda x: -x[1])
+    ]
+
     # ── Recent prints ─────────────────────────────────────────────────────────────
     recent_prints = [
         {
@@ -492,6 +514,7 @@ def get_stats():
         "by_weekday":         by_weekday,
         "by_duration":        by_duration,
         "by_outcome":         by_outcome,
+        "by_material":        by_material,
         "recent_prints":      recent_prints,
     }
 

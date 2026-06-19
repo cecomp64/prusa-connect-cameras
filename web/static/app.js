@@ -12,6 +12,7 @@ let _chartMonthly    = null;
 let _chartWeekday    = null;
 let _chartDuration   = null;
 let _chartOutcome    = null;
+let _chartMaterial   = null;
 let _chartCpuTemp    = null;
 let _chartCpuUsage   = null;
 let _chartMemUsage   = null;
@@ -320,6 +321,8 @@ function _cssVar(name) {
 function _makeChart(id, cfg) {
   const canvas = document.getElementById(id);
   if (!canvas) return null;
+  cfg.options = cfg.options || {};
+  cfg.options.animation = false;
   return new Chart(canvas, cfg);
 }
 
@@ -409,6 +412,27 @@ async function loadStats() {
       data: {
         labels:   data.by_outcome.map(o => o.state.charAt(0) + o.state.slice(1).toLowerCase()),
         datasets: [{ data: data.by_outcome.map(o => o.count), backgroundColor: data.by_outcome.map(o => outcomeColors[o.state] ?? '#6e7681'), borderWidth: 0 }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        cutout: '65%',
+        plugins: {
+          legend: { display: true, position: 'bottom', labels: { color: _cssVar('--text-muted'), boxWidth: 10, padding: 10, font: { size: 11 } } },
+        },
+      },
+    });
+  }
+
+  // Material doughnut
+  if (_chartMaterial) _chartMaterial.destroy();
+  if (data.by_material && data.by_material.length > 0) {
+    const materialPalette = ['#58a6ff', '#3fb950', '#e3b341', '#f85149', '#a371f7', '#fa6831', '#79c0ff', '#56d364'];
+    _chartMaterial = _makeChart('chart-material', {
+      type: 'doughnut',
+      data: {
+        labels:   data.by_material.map(m => m.material),
+        datasets: [{ data: data.by_material.map(m => m.count), backgroundColor: data.by_material.map((_, i) => materialPalette[i % materialPalette.length]), borderWidth: 0 }],
       },
       options: {
         responsive: true,
