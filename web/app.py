@@ -599,6 +599,102 @@ def get_system_stats():
     return {"metrics": metrics, "events": events}
 
 
+@app.get("/api/print/{print_id}")
+def get_print_detail(print_id: str):
+    try:
+        conn = _open_db()
+    except Exception:
+        raise HTTPException(503, "Database unavailable")
+
+    with conn:
+        row = conn.execute(
+            "SELECT pj.id, "
+            "COALESCE(pj.display_name, "
+            "  (SELECT pt.job_display_name FROM printer_telemetry pt "
+            "   WHERE pt.ts BETWEEN pj.start_ts AND COALESCE(pj.end_ts, pj.start_ts + 86400) "
+            "   AND pt.job_display_name IS NOT NULL LIMIT 1)"
+            ") AS display_name, "
+            "pj.start_ts, pj.end_ts, pj.duration_seconds, pj.end_state, pj.notes "
+            "FROM print_jobs pj WHERE pj.id = ?",
+            (print_id,),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Print not found")
+
+        rec_rows = conn.execute(
+            "SELECT r.id, r.camera_safe_name, r.file_path, r.file_size_bytes, "
+            "r.start_ts, r.end_ts, r.file_deleted, "
+            "yu.url AS yt_url, yu.title AS yt_title, yu.status AS yt_status "
+            "FROM recordings r "
+            "LEFT JOIN youtube_uploads yu ON yu.recording_id = r.id "
+            "WHERE r.job_id = ? ORDER BY r.start_ts",
+            (print_id,),
+        ).fetchall()
+
+    recordings = []
+    for r in rec_rows:
+        dur = None
+        if r["start_ts"] and r["end_ts"] and r["end_ts"] > r["start_ts"]:
+            dur = r["end_ts"] - r["start_ts"]
+        recordings.append({
+            "id":            r["id"],
+            "camera":        (r["camera_safe_name"] or "camera").replace("_", " "),
+            "file_path":     r["file_path"],
+            "file_deleted":  bool(r["file_deleted"]),
+            "file_size_mb":  round(r["file_size_bytes"] / 1_048_576, 1) if r["file_size_bytes"] else None,
+            "duration_seconds": dur,
+            "start_time":    datetime.fromtimestamp(r["start_ts"]).isoformat(timespec="seconds") if r["start_ts"] else None,
+            "yt_url":        r["yt_url"],
+            "yt_title":      r["yt_title"],
+            "yt_status":     r["yt_status"],
+        })
+
+    # Derive events for this print (start, end, per-recording start/stop)
+    events: list[dict] = []
+    name = row["display_name"] or "(unknown)"
+    if row["start_ts"]:
+        events.append({"ts": row["start_ts"], "type": "print_start", "label": f"Print started"})
+    for r in rec_rows:
+        cam = (r["camera_safe_name"] or "camera").replace("_", " ")
+        if r["start_ts"]:
+            events.append({"ts": r["start_ts"], "type": "recording_start", "label": f"Recording started: {cam}"})
+        if r["end_ts"]:
+            events.append({"ts": r["end_ts"], "type": "recording_stop", "label": f"Recording stopped: {cam}"})
+    if row["end_ts"]:
+        state = row["end_state"] or "?"
+        events.append({"ts": row["end_ts"], "type": "print_end", "state": state, "label": f"Print {state.lower()}"})
+    events.sort(key=lambda e: e["ts"])
+    for e in events:
+        e["time"] = datetime.fromtimestamp(e["ts"]).isoformat(timespec="seconds")
+
+    return {
+        "id":               row["id"],
+        "display_name":     row["display_name"],
+        "start_time":       datetime.fromtimestamp(row["start_ts"]).isoformat(timespec="seconds"),
+        "end_time":         datetime.fromtimestamp(row["end_ts"]).isoformat(timespec="seconds") if row["end_ts"] else None,
+        "duration_seconds": row["duration_seconds"],
+        "end_state":        row["end_state"],
+        "notes":            row["notes"],
+        "recordings":       recordings,
+        "events":           events,
+    }
+
+
+@app.put("/api/print/{print_id}/notes", status_code=204)
+def update_print_notes(print_id: str, body: dict):
+    notes = body.get("notes", "")
+    try:
+        conn = _open_db()
+    except Exception:
+        raise HTTPException(503, "Database unavailable")
+    with conn:
+        cur = conn.execute("UPDATE print_jobs SET notes = ? WHERE id = ?", (notes or None, print_id))
+        if cur.rowcount == 0:
+            raise HTTPException(404, "Print not found")
+        conn.commit()
+    return None
+
+
 def _pl_config() -> tuple[str, str]:
     cfg = load_config()
     pl = cfg.get("prusalink", {})

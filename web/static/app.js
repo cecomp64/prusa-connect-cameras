@@ -82,10 +82,20 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('upload-overlay').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeUploadModal();
   });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeUploadModal(); closePrinterFiles(); closeFilePreview(); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeModal(); closeUploadModal(); closePrinterFiles(); closeFilePreview(); closePrintDetail(); } });
   document.getElementById('file-preview-close').addEventListener('click', closeFilePreview);
   document.getElementById('file-preview-overlay').addEventListener('click', e => {
     if (e.target === e.currentTarget) closeFilePreview();
+  });
+
+  // Print detail modal
+  document.getElementById('print-detail-close').addEventListener('click', closePrintDetail);
+  document.getElementById('print-detail-overlay').addEventListener('click', e => {
+    if (e.target === e.currentTarget) closePrintDetail();
+  });
+  document.getElementById('stats-recent-list').addEventListener('click', e => {
+    const item = e.target.closest('.stats-recent-item');
+    if (item && item.dataset.id) openPrintDetail(item.dataset.id);
   });
 
   // Printer file browser
@@ -441,12 +451,135 @@ function buildStatsRecentItem(p) {
   const stateRaw = (p.end_state || 'UNKNOWN').toUpperCase();
   const badgeCls = printerStateBadgeClass(stateRaw);
   const dateStr  = p.start_time ? new Date(p.start_time).toLocaleDateString() : '—';
-  return `<div class="stats-recent-item">
+  return `<div class="stats-recent-item" data-id="${esc(p.id)}">
     <span class="stats-recent-name">${name}</span>
     <span class="stats-recent-date">${dateStr}</span>
     <span class="stats-recent-dur">${dur}</span>
     <span class="printer-badge ${badgeCls}">${stateRaw}</span>
   </div>`;
+}
+
+// ── Print detail modal ────────────────────────────────────────────────────────
+
+let _printDetailId = null;
+
+async function openPrintDetail(id) {
+  _printDetailId = id;
+  const overlay = document.getElementById('print-detail-overlay');
+  overlay.classList.remove('hidden');
+
+  // Reset state
+  document.getElementById('print-detail-title').textContent = 'Loading…';
+  document.getElementById('pd-start').textContent        = '—';
+  document.getElementById('pd-end').textContent          = '—';
+  document.getElementById('pd-duration').textContent     = '—';
+  document.getElementById('pd-state').innerHTML          = '';
+  document.getElementById('pd-recordings-list').innerHTML = '';
+  document.getElementById('pd-events-list').innerHTML    = '';
+  document.getElementById('pd-notes').value              = '';
+  document.getElementById('pd-notes-status').textContent = '';
+  document.getElementById('pd-no-recordings').classList.add('hidden');
+  document.getElementById('pd-no-events').classList.add('hidden');
+
+  let data;
+  try {
+    data = await api(`/api/print/${encodeURIComponent(id)}`);
+  } catch (err) {
+    document.getElementById('print-detail-title').textContent = 'Error loading print';
+    return;
+  }
+
+  const title = data.display_name ?? '(unknown)';
+  document.getElementById('print-detail-title').textContent = title;
+
+  document.getElementById('pd-start').textContent =
+    data.start_time ? new Date(data.start_time).toLocaleString() : '—';
+  document.getElementById('pd-end').textContent =
+    data.end_time ? new Date(data.end_time).toLocaleString() : '—';
+  document.getElementById('pd-duration').textContent =
+    data.duration_seconds != null ? fmtDuration(data.duration_seconds) : '—';
+
+  const stateRaw = (data.end_state || 'UNKNOWN').toUpperCase();
+  const badgeCls = printerStateBadgeClass(stateRaw);
+  document.getElementById('pd-state').innerHTML =
+    `<span class="printer-badge ${badgeCls}">${esc(stateRaw)}</span>`;
+
+  // Recordings
+  const recList = document.getElementById('pd-recordings-list');
+  if (!data.recordings || data.recordings.length === 0) {
+    document.getElementById('pd-no-recordings').classList.remove('hidden');
+  } else {
+    recList.innerHTML = data.recordings.map(r => {
+      const dur  = r.duration_seconds != null ? fmtDuration(r.duration_seconds) : null;
+      const size = r.file_size_mb != null ? `${r.file_size_mb} MB` : null;
+      const meta = [dur, size].filter(Boolean).join(' · ');
+      const filename = r.file_path ? r.file_path.split('/').pop() : '';
+      let actions = '';
+      if (r.yt_url) {
+        actions += `<a href="${esc(r.yt_url)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">&#127909; YouTube</a>`;
+      } else if (r.yt_status === 'uploading' || r.yt_status === 'pending') {
+        actions += `<span class="pd-recording-deleted">Uploading…</span>`;
+      }
+      if (r.file_deleted) {
+        actions += `<span class="pd-recording-deleted">File deleted</span>`;
+      }
+      return `<div class="pd-recording-item">
+        <div>
+          <div class="pd-recording-cam">${esc(r.camera)}</div>
+          <div class="pd-recording-meta">${esc(filename)}${meta ? ' · ' + esc(meta) : ''}</div>
+        </div>
+        <div class="pd-recording-actions">${actions}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // Events
+  const evList = document.getElementById('pd-events-list');
+  if (!data.events || data.events.length === 0) {
+    document.getElementById('pd-no-events').classList.remove('hidden');
+  } else {
+    const dotClass = type => {
+      if (type === 'print_start')    return 'stats-event-dot--print-start';
+      if (type === 'print_end')      return 'stats-event-dot--print-end';
+      if (type === 'recording_start') return 'stats-event-dot--upload-done';
+      if (type === 'recording_stop')  return 'stats-event-dot--print-end';
+      return 'stats-event-dot--print-end';
+    };
+    evList.innerHTML = data.events.map(e => {
+      const timeStr = e.time
+        ? new Date(e.time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        : '—';
+      return `<div class="pd-event-item">
+        <span class="pd-event-dot ${dotClass(e.type)}"></span>
+        <div class="pd-event-content">
+          <span class="pd-event-label">${esc(e.label)}</span>
+          <span class="pd-event-time">${esc(timeStr)}</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Notes
+  document.getElementById('pd-notes').value = data.notes ?? '';
+  document.getElementById('pd-notes-save').onclick = () => savePrintNotes(id);
+}
+
+function closePrintDetail() {
+  document.getElementById('print-detail-overlay').classList.add('hidden');
+  _printDetailId = null;
+}
+
+async function savePrintNotes(id) {
+  const notes  = document.getElementById('pd-notes').value;
+  const status = document.getElementById('pd-notes-status');
+  status.textContent = 'Saving…';
+  try {
+    await api(`/api/print/${encodeURIComponent(id)}/notes`, { method: 'PUT', json: { notes } });
+    status.textContent = 'Saved.';
+    setTimeout(() => { if (status.textContent === 'Saved.') status.textContent = ''; }, 2000);
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+  }
 }
 
 async function loadSystemStats() {

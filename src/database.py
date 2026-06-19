@@ -128,6 +128,7 @@ class Database:
             "ALTER TABLE recordings ADD COLUMN file_deleted INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE youtube_uploads ADD COLUMN title TEXT",
             "ALTER TABLE youtube_uploads ADD COLUMN file_path TEXT",
+            "ALTER TABLE print_jobs ADD COLUMN notes TEXT",
         ]:
             try:
                 self._conn.execute(stmt)
