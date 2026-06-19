@@ -1042,8 +1042,8 @@ em.muted { font-style: normal; }
 
 .stats-event-item {
   display: grid;
-  grid-template-columns: 20px 1fr auto;
-  align-items: center;
+  grid-template-columns: 20px 1fr;
+  align-items: start;
   gap: 12px;
   padding: 9px 16px;
   border-bottom: 1px solid var(--border);
@@ -1064,8 +1064,9 @@ em.muted { font-style: normal; }
 .stats-event-dot--upload-done    { background: #58a6ff; }
 .stats-event-dot--upload-error   { background: #f85149; }
 
-.stats-event-label { font-family: var(--mono); font-size: 12px; }
-.stats-event-time  { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.stats-event-content { display: flex; flex-direction: column; gap: 2px; }
+.stats-event-label { font-family: var(--mono); font-size: 12px; word-break: break-word; }
+.stats-event-time  { font-size: 11px; color: var(--text-muted); }
 
 /* ── Upload status line ───────────────────────────────────────────────────────── */
 .upload-status {

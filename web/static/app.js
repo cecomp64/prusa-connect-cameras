@@ -553,8 +553,10 @@ function buildEventItem(e) {
   }
   return `<div class="stats-event-item">
     <span class="stats-event-dot ${dotCls}"></span>
-    <span class="stats-event-label">${esc(e.label)}</span>
-    <span class="stats-event-time">${esc(timeStr)}</span>
+    <div class="stats-event-content">
+      <span class="stats-event-label">${esc(e.label)}</span>
+      <span class="stats-event-time">${esc(timeStr)}</span>
+    </div>
   </div>`;
 }
 
