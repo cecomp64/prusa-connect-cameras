@@ -449,6 +449,72 @@
     </div>
   </div>
 
+  <!-- ── Print detail modal ───────────────────────────────────────────────── -->
+  <div id="print-detail-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
+    <div class="modal modal--wide">
+      <div class="modal-header">
+        <h3 id="print-detail-title">Print Details</h3>
+        <button class="btn btn-ghost btn-icon" id="print-detail-close" aria-label="Close">&#10005;</button>
+      </div>
+      <div class="modal-body print-detail-body">
+
+        <!-- Summary row -->
+        <div class="print-detail-summary">
+          <div class="print-detail-meta-item">
+            <span class="print-detail-meta-label">Started</span>
+            <span id="pd-start" class="print-detail-meta-value"></span>
+          </div>
+          <div class="print-detail-meta-item">
+            <span class="print-detail-meta-label">Ended</span>
+            <span id="pd-end" class="print-detail-meta-value"></span>
+          </div>
+          <div class="print-detail-meta-item">
+            <span class="print-detail-meta-label">Duration</span>
+            <span id="pd-duration" class="print-detail-meta-value"></span>
+          </div>
+          <div class="print-detail-meta-item">
+            <span class="print-detail-meta-label">Outcome</span>
+            <span id="pd-state"></span>
+          </div>
+        </div>
+
+        <!-- Recordings -->
+        <div class="print-detail-section" id="pd-recordings-section">
+          <div class="print-detail-section-header">
+            <span class="print-detail-section-icon">&#127909;</span>
+            <h4>Recordings</h4>
+          </div>
+          <div id="pd-recordings-list" class="pd-recordings-list"></div>
+          <div id="pd-no-recordings" class="pd-empty hidden">No recordings for this print.</div>
+        </div>
+
+        <!-- Events timeline -->
+        <div class="print-detail-section">
+          <div class="print-detail-section-header">
+            <span class="print-detail-section-icon">&#128336;</span>
+            <h4>Events</h4>
+          </div>
+          <div id="pd-events-list" class="pd-events-list"></div>
+          <div id="pd-no-events" class="pd-empty hidden">No events recorded.</div>
+        </div>
+
+        <!-- Notes -->
+        <div class="print-detail-section">
+          <div class="print-detail-section-header">
+            <span class="print-detail-section-icon">&#128203;</span>
+            <h4>Notes</h4>
+          </div>
+          <textarea id="pd-notes" class="pd-notes-textarea" placeholder="Add a note about this print…" rows="4"></textarea>
+          <div class="pd-notes-footer">
+            <span id="pd-notes-status" class="pd-notes-status"></span>
+            <button class="btn btn-primary btn-sm" id="pd-notes-save">Save note</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
   <!-- ── Toast ──────────────────────────────────────────────────────────────── -->
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 

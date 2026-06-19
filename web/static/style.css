@@ -1042,8 +1042,8 @@ em.muted { font-style: normal; }
 
 .stats-event-item {
   display: grid;
-  grid-template-columns: 20px 1fr auto;
-  align-items: center;
+  grid-template-columns: 20px 1fr;
+  align-items: start;
   gap: 12px;
   padding: 9px 16px;
   border-bottom: 1px solid var(--border);
@@ -1064,8 +1064,97 @@ em.muted { font-style: normal; }
 .stats-event-dot--upload-done    { background: #58a6ff; }
 .stats-event-dot--upload-error   { background: #f85149; }
 
-.stats-event-label { font-family: var(--mono); font-size: 12px; }
-.stats-event-time  { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+.stats-event-content { display: flex; flex-direction: column; gap: 2px; }
+.stats-event-label { font-family: var(--mono); font-size: 12px; word-break: break-word; }
+.stats-event-time  { font-size: 11px; color: var(--text-muted); }
+
+/* ── Print detail modal ───────────────────────────────────────────────────────── */
+.modal--wide { width: 680px; }
+
+.stats-recent-item { cursor: pointer; transition: background 0.1s; }
+.stats-recent-item:hover { background: var(--surface-2); }
+
+.print-detail-body { padding: 0; display: flex; flex-direction: column; gap: 0; }
+
+.print-detail-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.print-detail-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  flex: 1;
+  padding: 4px 12px 4px 0;
+}
+.print-detail-meta-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.print-detail-meta-value { font-size: 13px; font-family: var(--mono); }
+
+.print-detail-section { padding: 16px 20px; border-bottom: 1px solid var(--border); }
+.print-detail-section:last-child { border-bottom: none; }
+.print-detail-section-header { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.print-detail-section-header h4 { font-size: 13px; font-weight: 600; margin: 0; }
+.print-detail-section-icon { font-size: 15px; line-height: 1; }
+
+.pd-recordings-list { display: flex; flex-direction: column; gap: 8px; }
+.pd-recording-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+.pd-recording-cam { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+.pd-recording-meta { font-size: 11px; color: var(--text-muted); }
+.pd-recording-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.pd-recording-deleted { font-size: 11px; color: var(--text-muted); font-style: italic; }
+
+.pd-events-list { display: flex; flex-direction: column; }
+.pd-event-item {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: start;
+  gap: 10px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pd-event-item:last-child { border-bottom: none; }
+.pd-event-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; justify-self: center; margin-top: 3px; }
+.pd-event-content { display: flex; flex-direction: column; gap: 1px; }
+.pd-event-label { font-family: var(--mono); font-size: 12px; }
+.pd-event-time  { font-size: 11px; color: var(--text-muted); }
+
+.pd-empty { font-size: 12px; color: var(--text-muted); padding: 4px 0; }
+
+.pd-notes-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.pd-notes-textarea:focus { outline: none; border-color: var(--accent); }
+.pd-notes-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.pd-notes-status { font-size: 11px; color: var(--text-muted); }
 
 /* ── Upload status line ───────────────────────────────────────────────────────── */
 .upload-status {
