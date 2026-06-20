@@ -958,14 +958,14 @@ em.muted { font-style: normal; }
   font-weight: 700;
   color: var(--text);
   line-height: 1.1;
+  overflow-wrap: break-word;
 }
 
 .stat-card-sub {
   font-size: 11px;
   color: var(--text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .stats-charts-row {

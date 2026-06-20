@@ -124,11 +124,11 @@ def main() -> None:
         logger.info("Print started (%s) — job %s", state.value, job_id)
         recorder.start_all(label="print")
 
-    def on_print_end(state: PrinterState, job_id: str | None, job_name: str | None, printer_duration: int | None) -> None:
+    def on_print_end(state: PrinterState, job_id: str | None, job_name: str | None, printer_duration: int | None, paused_seconds: int = 0) -> None:
         logger.info("Print ended (%s) — stopping recordings", state.value)
         files = recorder.stop_all()
         if job_id:
-            db.end_print_job(job_id, state.value, files, printer_duration)
+            db.end_print_job(job_id, state.value, files, printer_duration, paused_seconds)
 
         if upload_queue is not None and files:
             timestamp = time.strftime("%Y-%m-%d %H:%M")

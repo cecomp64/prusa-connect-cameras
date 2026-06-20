@@ -153,6 +153,13 @@ class Database:
             except sqlite3.OperationalError:
                 pass  # column/index already exists
 
+        # Reclassify IDLE end states to FINISHED — printers that skip the FINISHED
+        # state and go straight to IDLE were always "finished", not truly idle.
+        self._conn.execute(
+            "UPDATE print_jobs SET end_state = 'FINISHED' WHERE end_state = 'IDLE'"
+        )
+        self._conn.commit()
+
         # Backfill material for any print_jobs that have a display_name but no material yet
         rows = self._conn.execute(
             "SELECT id, display_name FROM print_jobs WHERE material IS NULL AND display_name IS NOT NULL"
@@ -237,6 +244,7 @@ class Database:
         end_state: str,
         recording_paths: list[str],
         printer_duration_seconds: int | None = None,
+        paused_seconds: int = 0,
     ) -> None:
         now = int(time.time())
         with self._lock:
@@ -247,7 +255,7 @@ class Database:
                 duration = printer_duration_seconds
             else:
                 start_ts = row["start_ts"] if row else now
-                duration = now - start_ts
+                duration = max(0, (now - start_ts) - paused_seconds)
 
             self._conn.execute(
                 "UPDATE print_jobs SET end_ts=?, duration_seconds=?, end_state=? WHERE id=?",

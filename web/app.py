@@ -371,7 +371,7 @@ def get_stats():
             ).fetchone()
             longest_row = conn.execute(
                 "SELECT duration_seconds, display_name FROM print_jobs "
-                "WHERE end_ts IS NOT NULL AND end_state != 'IDLE' ORDER BY duration_seconds DESC LIMIT 1"
+                "WHERE end_ts IS NOT NULL ORDER BY duration_seconds DESC LIMIT 1"
             ).fetchone()
             month_rows = conn.execute(
                 "SELECT strftime('%Y-%m', datetime(start_ts,'unixepoch')) AS month, "

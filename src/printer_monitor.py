@@ -41,7 +41,7 @@ class PrinterMonitor:
         cfg: dict,
         db: "Database",
         on_print_start: Callable[[PrinterState, str], None] | None = None,
-        on_print_end: Callable[[PrinterState, str | None, str | None, int | None], None] | None = None,
+        on_print_end: Callable[[PrinterState, str | None, str | None, int | None, int], None] | None = None,
     ):
         self._host: str = cfg["host"].rstrip("/")
         self._api_key: str = cfg["api_key"]
@@ -59,6 +59,8 @@ class PrinterMonitor:
         self._last_snapshot: dict | None = None  # last telemetry row inserted
         self._last_idle_write: float = 0.0       # timestamp of last non-active write
         self._last_job_time_printing: int | None = None  # printer's own active-time counter
+        self._paused_seconds: int = 0            # accumulated pause time for current job
+        self._pause_started: float | None = None # wall-clock time current pause began
         self._pending_resume = False  # True when we restored an active job from DB
 
         # Restore state from DB so a service restart doesn't look like a fresh start.
@@ -204,11 +206,22 @@ class PrinterMonitor:
         if state == self._last_state:
             return
 
-        logger.info("Printer state: %s → %s", self._last_state.value, state.value)
+        prev_state = self._last_state
+        logger.info("Printer state: %s → %s", prev_state.value, state.value)
         self._last_state = state
+
+        # Accumulate per-job pause time so the fallback duration excludes pauses.
+        if prev_state == PrinterState.PAUSED and state in ACTIVE:
+            if self._pause_started is not None:
+                self._paused_seconds += int(time.time() - self._pause_started)
+                self._pause_started = None
+        elif state == PrinterState.PAUSED and self._print_active:
+            self._pause_started = time.time()
 
         if state in ACTIVE and not self._print_active:
             self._print_active = True
+            self._paused_seconds = 0
+            self._pause_started = None
             job_id = str(uuid.uuid4())
             self._current_job_id = job_id
             name = snapshot.get("job_display_name")
@@ -218,8 +231,9 @@ class PrinterMonitor:
                 self.on_print_start(state, job_id)
 
         elif self._print_active and state not in ACTIVE:
-            # Fire on any exit from active — printers often skip FINISHED and go
-            # straight to IDLE, so we can't gate this on TERMINAL states alone.
+            # Printers often skip FINISHED and go straight to IDLE on normal completion.
+            # Map IDLE/UNKNOWN to FINISHED so the DB never stores IDLE as a job end state.
+            end_state = state if state in TERMINAL else PrinterState.FINISHED
             self._print_active = False
             job_id = self._current_job_id
             job_name = self._current_job_name
@@ -227,5 +241,10 @@ class PrinterMonitor:
             self._current_job_name = None
             printer_duration = self._last_job_time_printing
             self._last_job_time_printing = None
+            paused_secs = self._paused_seconds
+            if self._pause_started is not None:
+                paused_secs += int(time.time() - self._pause_started)
+            self._paused_seconds = 0
+            self._pause_started = None
             if self.on_print_end:
-                self.on_print_end(state, job_id, job_name, printer_duration)
+                self.on_print_end(end_state, job_id, job_name, printer_duration, paused_secs)
