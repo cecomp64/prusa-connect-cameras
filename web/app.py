@@ -697,7 +697,7 @@ def get_print_detail(print_id: str):
 def update_print_notes(print_id: str, body: PrintNotesBody):
     notes = body.notes
     try:
-        conn = _open_db()
+        conn = _open_db_rw()
     except Exception:
         raise HTTPException(503, "Database unavailable")
     with conn:
