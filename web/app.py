@@ -476,7 +476,7 @@ def get_stats():
     ]
 
     # ── By material — derived from bgcode/gcode filename ─────────────────────────
-    _mat_after_layer = re.compile(r'_(\d+[\.,]\d+mm)[_-]([A-Z][A-Z0-9+_\-]*)_', re.IGNORECASE)
+    _mat_after_layer = re.compile(r'_(\d+[\.,]\d+mm)[_-]([A-Z][A-Z0-9+\-]*)_', re.IGNORECASE)
     _mat_known = re.compile(r'\b(PLA\+?|PETG|ASA|ABS|TPU|PC|PA|NYLON|FLEX|PVA|HIPS|PP|CPE|PCTG)\b', re.IGNORECASE)
     material_counts: dict[str, int] = {}
     for r in (material_rows or []):
