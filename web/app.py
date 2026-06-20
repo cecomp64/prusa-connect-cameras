@@ -113,6 +113,9 @@ class RecordingBody(BaseModel):
     output_dir: str
     retention_days: int = 7
 
+class PrintNotesBody(BaseModel):
+    notes: str | None = None
+
 
 # ── Camera CRUD ────────────────────────────────────────────────────────────────
 
@@ -391,7 +394,7 @@ def get_stats():
             material_rows = conn.execute(
                 "SELECT COALESCE(material, 'Unknown') AS material, COUNT(*) AS count "
                 "FROM print_jobs WHERE end_ts IS NOT NULL "
-                "GROUP BY material ORDER BY count DESC"
+                "GROUP BY COALESCE(material, 'Unknown') ORDER BY count DESC"
             ).fetchall()
             recent_rows = conn.execute(
                 "SELECT pj.id, "
@@ -691,8 +694,8 @@ def get_print_detail(print_id: str):
 
 
 @app.put("/api/print/{print_id}/notes", status_code=204)
-def update_print_notes(print_id: str, body: dict):
-    notes = body.get("notes", "")
+def update_print_notes(print_id: str, body: PrintNotesBody):
+    notes = body.notes
     try:
         conn = _open_db()
     except Exception:

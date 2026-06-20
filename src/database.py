@@ -213,7 +213,7 @@ class Database:
     # ── Print jobs ────────────────────────────────────────────────────────────────
 
     def begin_print_job(self, job_id: str, display_name: str | None) -> None:
-        material = _parse_material(display_name) if display_name else None
+        material = _parse_material(display_name)
         with self._lock:
             self._conn.execute(
                 "INSERT INTO print_jobs (id, display_name, material, start_ts) VALUES (?, ?, ?, ?)",
