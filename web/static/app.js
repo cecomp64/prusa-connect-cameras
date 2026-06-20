@@ -541,13 +541,9 @@ async function openPrintDetail(id) {
 
       let ytHtml = '';
       if (r.yt_url) {
-        const ytLabel = esc(r.yt_title || r.yt_url);
-        ytHtml = `<a href="${esc(r.yt_url)}" target="_blank" rel="noopener" class="pd-yt-link">
-          <span class="pd-yt-icon">&#127909;</span>
-          <span class="pd-yt-label">${ytLabel}</span>
-        </a>`;
+        ytHtml = `<a href="${esc(r.yt_url)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm yt-done-btn">&#9654; YouTube</a>`;
       } else if (r.yt_status === 'uploading' || r.yt_status === 'pending') {
-        ytHtml = `<span class="pd-recording-deleted">Uploading to YouTube…</span>`;
+        ytHtml = `<span class="badge badge-uploading">Uploading…</span>`;
       }
 
       const deletedTag = r.file_deleted ? `<span class="pd-recording-deleted">File deleted</span>` : '';

@@ -1114,18 +1114,6 @@ em.muted { font-style: normal; }
 .pd-recording-cam { font-size: 12px; font-weight: 600; }
 .pd-recording-meta { font-size: 11px; color: var(--text-muted); }
 .pd-recording-deleted { font-size: 11px; color: var(--text-muted); font-style: italic; }
-.pd-yt-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--accent);
-  text-decoration: none;
-  word-break: break-all;
-}
-.pd-yt-link:hover { text-decoration: underline; }
-.pd-yt-icon { font-size: 14px; flex-shrink: 0; }
 
 .pd-events-list { display: flex; flex-direction: column; }
 .pd-event-item {
