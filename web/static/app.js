@@ -436,13 +436,14 @@ async function loadStats() {
 
   // Material doughnut
   if (_chartMaterial) _chartMaterial.destroy();
-  if (data.by_material && data.by_material.length > 0) {
+  const knownMaterials = (data.by_material || []).filter(m => m.material !== 'Unknown');
+  if (knownMaterials.length > 0) {
     const materialPalette = ['#58a6ff', '#3fb950', '#e3b341', '#f85149', '#a371f7', '#fa6831', '#79c0ff', '#56d364'];
     _chartMaterial = _makeChart('chart-material', {
       type: 'doughnut',
       data: {
-        labels:   data.by_material.map(m => m.material),
-        datasets: [{ data: data.by_material.map(m => m.count), backgroundColor: data.by_material.map((_, i) => materialPalette[i % materialPalette.length]), borderWidth: 0 }],
+        labels:   knownMaterials.map(m => m.material),
+        datasets: [{ data: knownMaterials.map(m => m.count), backgroundColor: knownMaterials.map((_, i) => materialPalette[i % materialPalette.length]), borderWidth: 0 }],
       },
       options: {
         responsive: true,
