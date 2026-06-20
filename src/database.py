@@ -11,6 +11,21 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+_MAT_AFTER_LAYER = re.compile(r'_(\d+[\.,]\d+mm)[_-]([A-Z][A-Z0-9+\-]*)_', re.IGNORECASE)
+_MAT_KNOWN = re.compile(r'\b(PLA\+?|PETG|ASA|ABS|TPU|PC|PA|NYLON|FLEX|PVA|HIPS|PP|CPE|PCTG)\b', re.IGNORECASE)
+
+
+def _parse_material(display_name: str | None) -> str:
+    if not display_name:
+        return "Unknown"
+    name = re.sub(r'\.(bgcode|gcode)$', '', display_name, flags=re.IGNORECASE)
+    m = _MAT_AFTER_LAYER.search(name)
+    if m:
+        return m.group(2).upper()
+    m2 = _MAT_KNOWN.search(name)
+    return m2.group(1).upper() if m2 else "Unknown"
+
+
 _SCHEMA = """
 PRAGMA journal_mode=WAL;
 PRAGMA synchronous=NORMAL;
@@ -57,6 +72,7 @@ CREATE TABLE IF NOT EXISTS printer_status (
 CREATE TABLE IF NOT EXISTS print_jobs (
     id               TEXT    PRIMARY KEY,
     display_name     TEXT,
+    material         TEXT,
     start_ts         INTEGER NOT NULL,
     end_ts           INTEGER,
     duration_seconds INTEGER,
@@ -129,12 +145,25 @@ class Database:
             "ALTER TABLE youtube_uploads ADD COLUMN title TEXT",
             "ALTER TABLE youtube_uploads ADD COLUMN file_path TEXT",
             "ALTER TABLE print_jobs ADD COLUMN notes TEXT",
+            "ALTER TABLE print_jobs ADD COLUMN material TEXT",
         ]:
             try:
                 self._conn.execute(stmt)
                 self._conn.commit()
             except sqlite3.OperationalError:
                 pass  # column/index already exists
+
+        # Backfill material for any print_jobs that have a display_name but no material yet
+        rows = self._conn.execute(
+            "SELECT id, display_name FROM print_jobs WHERE material IS NULL AND display_name IS NOT NULL"
+        ).fetchall()
+        if rows:
+            self._conn.executemany(
+                "UPDATE print_jobs SET material = ? WHERE id = ?",
+                [(_parse_material(r["display_name"]), r["id"]) for r in rows],
+            )
+            self._conn.commit()
+            logger.info("Backfilled material for %d print jobs", len(rows))
 
     # ── Telemetry ─────────────────────────────────────────────────────────────────
 
@@ -184,10 +213,11 @@ class Database:
     # ── Print jobs ────────────────────────────────────────────────────────────────
 
     def begin_print_job(self, job_id: str, display_name: str | None) -> None:
+        material = _parse_material(display_name) if display_name else None
         with self._lock:
             self._conn.execute(
-                "INSERT INTO print_jobs (id, display_name, start_ts) VALUES (?, ?, ?)",
-                (job_id, display_name, int(time.time())),
+                "INSERT INTO print_jobs (id, display_name, material, start_ts) VALUES (?, ?, ?, ?)",
+                (job_id, display_name, material, int(time.time())),
             )
             self._conn.commit()
         logger.info("Print job started: %s (%s)", job_id, display_name)
@@ -196,8 +226,8 @@ class Database:
         """Backfill or correct display_name once PrusaLink reports it."""
         with self._lock:
             self._conn.execute(
-                "UPDATE print_jobs SET display_name = ? WHERE id = ?",
-                (display_name, job_id),
+                "UPDATE print_jobs SET display_name = ?, material = ? WHERE id = ?",
+                (display_name, _parse_material(display_name), job_id),
             )
             self._conn.commit()
 

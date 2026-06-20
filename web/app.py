@@ -389,8 +389,9 @@ def get_stats():
                 "FROM print_jobs WHERE end_ts IS NOT NULL GROUP BY state"
             ).fetchall()
             material_rows = conn.execute(
-                "SELECT display_name FROM print_jobs "
-                "WHERE end_ts IS NOT NULL AND display_name IS NOT NULL"
+                "SELECT COALESCE(material, 'Unknown') AS material, COUNT(*) AS count "
+                "FROM print_jobs WHERE end_ts IS NOT NULL "
+                "GROUP BY material ORDER BY count DESC"
             ).fetchall()
             recent_rows = conn.execute(
                 "SELECT pj.id, "
@@ -475,22 +476,8 @@ def get_stats():
         if outcome_map.get(s, 0) > 0
     ]
 
-    # ── By material — derived from bgcode/gcode filename ─────────────────────────
-    _mat_after_layer = re.compile(r'_(\d+[\.,]\d+mm)[_-]([A-Z][A-Z0-9+\-]*)_', re.IGNORECASE)
-    _mat_known = re.compile(r'\b(PLA\+?|PETG|ASA|ABS|TPU|PC|PA|NYLON|FLEX|PVA|HIPS|PP|CPE|PCTG)\b', re.IGNORECASE)
-    material_counts: dict[str, int] = {}
-    for r in (material_rows or []):
-        name = re.sub(r'\.(bgcode|gcode)$', '', r["display_name"] or "", flags=re.IGNORECASE)
-        m = _mat_after_layer.search(name)
-        mat = m.group(2).upper() if m else None
-        if not mat:
-            m2 = _mat_known.search(name)
-            mat = m2.group(1).upper() if m2 else "Unknown"
-        material_counts[mat] = material_counts.get(mat, 0) + 1
-    by_material = [
-        {"material": k, "count": v}
-        for k, v in sorted(material_counts.items(), key=lambda x: -x[1])
-    ]
+    # ── By material ───────────────────────────────────────────────────────────────
+    by_material = [{"material": r["material"], "count": r["count"]} for r in (material_rows or [])]
 
     # ── Recent prints ─────────────────────────────────────────────────────────────
     recent_prints = [
