@@ -534,25 +534,28 @@ async function openPrintDetail(id) {
     document.getElementById('pd-no-recordings').classList.remove('hidden');
   } else {
     recList.innerHTML = data.recordings.map(r => {
-      const dur  = r.duration_seconds != null ? fmtDuration(r.duration_seconds) : null;
-      const size = r.file_size_mb != null ? `${r.file_size_mb} MB` : null;
-      const meta = [dur, size].filter(Boolean).join(' · ');
+      const dur      = r.duration_seconds != null ? fmtDuration(r.duration_seconds) : null;
+      const size     = r.file_size_mb != null ? `${r.file_size_mb} MB` : null;
+      const meta     = [dur, size].filter(Boolean).join(' · ');
       const filename = r.file_path ? r.file_path.split('/').pop() : '';
-      let actions = '';
+
+      let ytHtml = '';
       if (r.yt_url) {
-        actions += `<a href="${esc(r.yt_url)}" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">&#127909; YouTube</a>`;
+        const ytLabel = esc(r.yt_title || r.yt_url);
+        ytHtml = `<a href="${esc(r.yt_url)}" target="_blank" rel="noopener" class="pd-yt-link">
+          <span class="pd-yt-icon">&#127909;</span>
+          <span class="pd-yt-label">${ytLabel}</span>
+        </a>`;
       } else if (r.yt_status === 'uploading' || r.yt_status === 'pending') {
-        actions += `<span class="pd-recording-deleted">Uploading…</span>`;
+        ytHtml = `<span class="pd-recording-deleted">Uploading to YouTube…</span>`;
       }
-      if (r.file_deleted) {
-        actions += `<span class="pd-recording-deleted">File deleted</span>`;
-      }
+
+      const deletedTag = r.file_deleted ? `<span class="pd-recording-deleted">File deleted</span>` : '';
+
       return `<div class="pd-recording-item">
-        <div>
-          <div class="pd-recording-cam">${esc(r.camera)}</div>
-          <div class="pd-recording-meta">${esc(filename)}${meta ? ' · ' + esc(meta) : ''}</div>
-        </div>
-        <div class="pd-recording-actions">${actions}</div>
+        <div class="pd-recording-cam">${esc(r.camera)}</div>
+        <div class="pd-recording-meta">${esc(filename)}${meta ? ' · ' + esc(meta) : ''}${deletedTag ? ' · ' + deletedTag : ''}</div>
+        ${ytHtml}
       </div>`;
     }).join('');
   }
