@@ -626,7 +626,7 @@ def get_print_detail(print_id: str):
             "r.start_ts, r.end_ts, r.file_deleted, "
             "yu.url AS yt_url, yu.title AS yt_title, yu.status AS yt_status "
             "FROM recordings r "
-            "LEFT JOIN youtube_uploads yu ON yu.recording_id = r.id "
+            "LEFT JOIN youtube_uploads yu ON yu.file_path = r.file_path "
             "WHERE r.job_id = ? ORDER BY r.start_ts",
             (print_id,),
         ).fetchall()

@@ -1103,19 +1103,29 @@ em.muted { font-style: normal; }
 
 .pd-recordings-list { display: flex; flex-direction: column; gap: 8px; }
 .pd-recording-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: start;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   background: var(--bg);
 }
-.pd-recording-cam { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+.pd-recording-cam { font-size: 12px; font-weight: 600; }
 .pd-recording-meta { font-size: 11px; color: var(--text-muted); }
-.pd-recording-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
 .pd-recording-deleted { font-size: 11px; color: var(--text-muted); font-style: italic; }
+.pd-yt-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+.pd-yt-link:hover { text-decoration: underline; }
+.pd-yt-icon { font-size: 14px; flex-shrink: 0; }
 
 .pd-events-list { display: flex; flex-direction: column; }
 .pd-event-item {
