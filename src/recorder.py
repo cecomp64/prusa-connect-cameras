@@ -26,12 +26,17 @@ class Recorder:
     # Public interface
     # ------------------------------------------------------------------
 
-    def start_all(self, label: str = "print") -> None:
+    def start_all(self, label: str = "print") -> list[str]:
+        """Start recording on all cameras; return the output paths that were started."""
+        paths = []
         for cam in self._camera_cfgs:
             try:
-                self._start(cam, label)
+                path = self._start(cam, label)
+                if path:
+                    paths.append(path)
             except Exception as exc:
                 logger.error("[%s] Failed to start recording: %s", cam.get("name", "?"), exc)
+        return paths
 
     def stop_all(self) -> list[str]:
         """Stop every active recording and return paths of completed files."""
@@ -54,12 +59,12 @@ class Recorder:
         except OSError:
             pass
 
-    def _start(self, cam: dict, label: str) -> None:
+    def _start(self, cam: dict, label: str) -> str | None:
         name = cam["name"]
         with self._lock:
             if name in self._sessions:
                 logger.warning("[%s] Already recording, skipping", name)
-                return
+                return None
 
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         safe = name.replace(" ", "_").lower()
@@ -95,6 +100,7 @@ class Recorder:
             self._sessions[name] = (proc, out)
         logger.info("[%s] Recording started → %s", name, out)
         self._write_status()
+        return str(out)
 
     def _stop(self, name: str) -> str | None:
         with self._lock:

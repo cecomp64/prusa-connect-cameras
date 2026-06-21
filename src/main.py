@@ -122,17 +122,27 @@ def main() -> None:
 
     def on_print_start(state: PrinterState, job_id: str) -> None:
         logger.info("Print started (%s) — job %s", state.value, job_id)
-        recorder.start_all(label="print")
+        paths = recorder.start_all(label="print")
+        for path in paths:
+            db.register_recording(job_id, path)
 
     def on_print_end(state: PrinterState, job_id: str | None, job_name: str | None, printer_duration: int | None, paused_seconds: int = 0) -> None:
         logger.info("Print ended (%s) — stopping recordings", state.value)
-        files = recorder.stop_all()
+        stopped_files = recorder.stop_all()
         if job_id:
-            db.end_print_job(job_id, state.value, files, printer_duration, paused_seconds)
+            db.end_print_job(job_id, state.value, stopped_files, printer_duration, paused_seconds)
+            # Include any recordings started before a mid-print service restart that
+            # were registered at start time but stopped when the service went down.
+            all_files = db.get_job_recordings(job_id)
+        else:
+            all_files = stopped_files
 
-        if upload_queue is not None and files:
+        if upload_queue is not None and all_files:
             timestamp = time.strftime("%Y-%m-%d %H:%M")
-            for path in files:
+            for path in all_files:
+                if not Path(path).exists():
+                    logger.warning("Recording file missing, skipping upload: %s", path)
+                    continue
                 filename = Path(path).name
                 title = f"{job_name} — {timestamp}" if job_name else f"3D Print — {timestamp} ({state.value})"
                 db.set_upload_state(filename, "pending", pct=0, title=title, file_path=path)

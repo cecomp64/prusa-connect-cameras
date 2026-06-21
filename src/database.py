@@ -309,31 +309,54 @@ class Database:
             self._conn.commit()
         logger.info("Print job ended: %s (%s, %ds)", job_id, end_state, duration)
 
-    def _insert_recording(self, job_id: str, path_str: str, end_ts: int) -> None:
+    def _parse_recording_path(self, path_str: str) -> tuple[str | None, int | None]:
+        """Return (camera_safe_name, start_ts) parsed from a recording filename."""
         p = Path(path_str)
         m = _REC_PATTERN.search(p.name)
-        camera_safe = None
-        start_ts = None
-        if m:
-            ts_str = m.group(2)
-            try:
-                start_ts = int(datetime.strptime(ts_str, "%Y%m%d_%H%M%S").timestamp())
-                # camera_safe_name is everything before _{label}_
-                camera_safe = p.stem[: p.stem.index(f"_{m.group(1)}_")]
-            except (ValueError, IndexError):
-                pass
-
-        size = p.stat().st_size if p.exists() else None
-
+        if not m:
+            return None, None
+        ts_str = m.group(2)
         try:
+            start_ts = int(datetime.strptime(ts_str, "%Y%m%d_%H%M%S").timestamp())
+            camera_safe = p.stem[: p.stem.index(f"_{m.group(1)}_")]
+            return camera_safe, start_ts
+        except (ValueError, IndexError):
+            return None, None
+
+    def register_recording(self, job_id: str, file_path: str) -> None:
+        """Insert a recording row at the moment recording starts (end_ts/size unknown yet)."""
+        camera_safe, start_ts = self._parse_recording_path(file_path)
+        with self._lock:
             self._conn.execute(
-                "INSERT INTO recordings "
-                "(id, job_id, camera_safe_name, file_path, file_size_bytes, start_ts, end_ts) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (str(uuid.uuid4()), job_id, camera_safe, path_str, size, start_ts, end_ts),
+                "INSERT OR IGNORE INTO recordings "
+                "(id, job_id, camera_safe_name, file_path, start_ts) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (str(uuid.uuid4()), job_id, camera_safe, file_path, start_ts),
             )
-        except sqlite3.IntegrityError:
-            pass  # UNIQUE violation: already recorded
+            self._conn.commit()
+
+    def get_job_recordings(self, job_id: str) -> list[str]:
+        """Return file paths for all recordings associated with a print job."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT file_path FROM recordings WHERE job_id=? AND file_deleted=0",
+                (job_id,),
+            ).fetchall()
+        return [row["file_path"] for row in rows]
+
+    def _insert_recording(self, job_id: str, path_str: str, end_ts: int) -> None:
+        camera_safe, start_ts = self._parse_recording_path(path_str)
+        size = Path(path_str).stat().st_size if Path(path_str).exists() else None
+        # Upsert: if pre-registered at start time, update end_ts/size; otherwise insert fresh.
+        self._conn.execute(
+            "INSERT INTO recordings "
+            "(id, job_id, camera_safe_name, file_path, file_size_bytes, start_ts, end_ts) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(file_path) DO UPDATE SET "
+            "end_ts=excluded.end_ts, file_size_bytes=excluded.file_size_bytes, "
+            "job_id=COALESCE(job_id, excluded.job_id)",
+            (str(uuid.uuid4()), job_id, camera_safe, path_str, size, start_ts, end_ts),
+        )
 
     # ── YouTube uploads ───────────────────────────────────────────────────────────
 
