@@ -30,6 +30,7 @@
       <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
       <button class="tab-btn" data-tab="settings">Settings</button>
       <button class="tab-btn" data-tab="recordings">Recordings</button>
+      <button class="tab-btn" data-tab="prints">Prints</button>
       <button class="tab-btn" data-tab="stats">Stats</button>
       <button class="tab-btn" data-tab="logs">Logs</button>
     </nav>
@@ -246,6 +247,46 @@
         </div>
       </section>
 
+      <!-- ── Prints ────────────────────────────────────────────────── -->
+      <section id="tab-prints" class="tab">
+
+        <div class="card prints-filters-card">
+          <div class="prints-filters-row">
+            <input type="search" id="pf-search" class="prints-filter-input" placeholder="Search by name&hellip;">
+            <select id="pf-material" class="prints-filter-select">
+              <option value="">All materials</option>
+            </select>
+            <div class="prints-filter-dur">
+              <input type="number" id="pf-min-dur" class="prints-filter-num" placeholder="Min h" min="0" step="0.5">
+              <span class="prints-filter-sep">&ndash;</span>
+              <input type="number" id="pf-max-dur" class="prints-filter-num" placeholder="Max h" min="0" step="0.5">
+              <span class="prints-filter-unit">h</span>
+            </div>
+            <div class="prints-filter-dates">
+              <input type="date" id="pf-date-from" class="prints-filter-date">
+              <span class="prints-filter-sep">&ndash;</span>
+              <input type="date" id="pf-date-to" class="prints-filter-date">
+            </div>
+            <button class="btn btn-ghost btn-sm" id="pf-reset">Reset</button>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div id="prints-list" class="stats-recent-list"></div>
+          <div id="prints-no-data" class="empty-state hidden">
+            <div class="empty-icon">&#128202;</div>
+            <p>No prints match your filters.</p>
+          </div>
+        </div>
+
+        <div id="prints-pagination" class="prints-pagination hidden">
+          <button class="btn btn-ghost btn-sm" id="prints-prev" disabled>&#8592; Previous</button>
+          <span id="prints-page-info" class="prints-page-info"></span>
+          <button class="btn btn-ghost btn-sm" id="prints-next">Next &#8594;</button>
+        </div>
+
+      </section>
+
       <!-- ── Stats ─────────────────────────────────────────────────── -->
       <section id="tab-stats" class="tab">
 
@@ -292,15 +333,6 @@
           <div class="stats-chart-card stats-chart-card--outcome">
             <h3>Material</h3>
             <div class="chart-outcome-wrap"><canvas id="chart-material"></canvas></div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-header"><h2>Recent Prints</h2></div>
-          <div id="stats-recent-list" class="stats-recent-list"></div>
-          <div id="stats-no-data" class="empty-state hidden">
-            <div class="empty-icon">&#128202;</div>
-            <p>No print history yet. Stats will appear after your first recorded print.</p>
           </div>
         </div>
 
@@ -511,6 +543,14 @@
           </div>
         </div>
 
+      </div>
+      <div class="modal-footer print-detail-footer">
+        <div id="pd-reprint-confirm" class="pd-reprint-confirm hidden">
+          <span class="pd-reprint-confirm-label">Re-print this file on the printer?</span>
+          <button class="btn btn-primary btn-sm" id="pd-reprint-yes">&#9654; Print</button>
+          <button class="btn btn-ghost btn-sm" id="pd-reprint-cancel">Cancel</button>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="pd-reprint-btn">&#8635; Re-print</button>
       </div>
     </div>
   </div>

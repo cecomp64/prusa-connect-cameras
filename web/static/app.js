@@ -23,6 +23,8 @@ let statsRefreshTimer = null;
 let lastRecordingsKey = null;
 let printerConfirmPending = null; // { label, fn } while awaiting inline confirmation
 let printerFilesOpen = false;
+let _printsPage = 1;
+let _printsDebounceTimer = null;
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -94,10 +96,24 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('print-detail-overlay').addEventListener('click', e => {
     if (e.target === e.currentTarget) closePrintDetail();
   });
-  document.getElementById('stats-recent-list').addEventListener('click', e => {
+  document.getElementById('pd-reprint-btn').addEventListener('click', showReprintConfirm);
+  document.getElementById('pd-reprint-yes').addEventListener('click', doReprint);
+  document.getElementById('pd-reprint-cancel').addEventListener('click', hideReprintConfirm);
+
+  // Prints tab
+  document.getElementById('prints-list').addEventListener('click', e => {
     const item = e.target.closest('.stats-recent-item');
     if (item && item.dataset.id) openPrintDetail(item.dataset.id);
   });
+  document.getElementById('pf-search').addEventListener('input', () => { _printsPage = 1; loadPrintsDebounced(); });
+  document.getElementById('pf-material').addEventListener('change', () => { _printsPage = 1; loadPrints(); });
+  document.getElementById('pf-min-dur').addEventListener('input', () => { _printsPage = 1; loadPrintsDebounced(); });
+  document.getElementById('pf-max-dur').addEventListener('input', () => { _printsPage = 1; loadPrintsDebounced(); });
+  document.getElementById('pf-date-from').addEventListener('change', () => { _printsPage = 1; loadPrints(); });
+  document.getElementById('pf-date-to').addEventListener('change', () => { _printsPage = 1; loadPrints(); });
+  document.getElementById('pf-reset').addEventListener('click', resetPrintsFilters);
+  document.getElementById('prints-prev').addEventListener('click', () => { if (_printsPage > 1) { _printsPage--; loadPrints(); } });
+  document.getElementById('prints-next').addEventListener('click', () => { _printsPage++; loadPrints(); });
 
   // Printer file browser
   document.getElementById('printer-files-refresh').addEventListener('click', () => {
@@ -143,6 +159,7 @@ function switchTab(name) {
   if (name === 'settings')   { loadCameraList(); loadPrusaLink(); loadYouTube(); loadRecordingConfig(); }
   if (name === 'recordings') { loadRecordings(); startRecordingsRefresh(); }
   else                         stopRecordingsRefresh();
+  if (name === 'prints')     loadPrints();
   if (name === 'stats')      { loadStats(); startStatsRefresh(); }
   else                         stopStatsRefresh();
   if (name === 'logs')       startLogStream();
@@ -456,17 +473,6 @@ async function loadStats() {
     });
   }
 
-  // Recent prints list
-  const list  = document.getElementById('stats-recent-list');
-  const empty = document.getElementById('stats-no-data');
-  if (!data.recent_prints || data.recent_prints.length === 0) {
-    list.innerHTML = '';
-    empty.classList.remove('hidden');
-  } else {
-    empty.classList.add('hidden');
-    list.innerHTML = data.recent_prints.map(buildStatsRecentItem).join('');
-  }
-
   loadSystemStats();
 }
 
@@ -484,12 +490,88 @@ function buildStatsRecentItem(p) {
   </div>`;
 }
 
+// ── Prints tab ────────────────────────────────────────────────────────────────
+
+function loadPrintsDebounced() {
+  clearTimeout(_printsDebounceTimer);
+  _printsDebounceTimer = setTimeout(loadPrints, 380);
+}
+
+async function loadPrints() {
+  const search   = document.getElementById('pf-search').value.trim();
+  const material = document.getElementById('pf-material').value;
+  const minDur   = document.getElementById('pf-min-dur').value;
+  const maxDur   = document.getElementById('pf-max-dur').value;
+  const dateFrom = document.getElementById('pf-date-from').value;
+  const dateTo   = document.getElementById('pf-date-to').value;
+
+  const params = new URLSearchParams({ page: _printsPage, per_page: 25 });
+  if (search)   params.set('search', search);
+  if (material) params.set('material', material);
+  if (minDur)   params.set('min_duration', Math.round(parseFloat(minDur) * 3600));
+  if (maxDur)   params.set('max_duration', Math.round(parseFloat(maxDur) * 3600));
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo)   params.set('date_to', dateTo);
+
+  let data;
+  try { data = await api(`/api/prints?${params}`); } catch { return; }
+
+  // Refresh material dropdown, preserving current selection
+  const sel = document.getElementById('pf-material');
+  const selectedMat = sel.value;
+  while (sel.options.length > 1) sel.remove(1);
+  (data.materials || []).forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m;
+    opt.textContent = m;
+    sel.appendChild(opt);
+  });
+  sel.value = selectedMat;
+
+  const list  = document.getElementById('prints-list');
+  const empty = document.getElementById('prints-no-data');
+  const pag   = document.getElementById('prints-pagination');
+
+  if (!data.prints || data.prints.length === 0) {
+    list.innerHTML = '';
+    empty.classList.remove('hidden');
+    pag.classList.add('hidden');
+    return;
+  }
+
+  empty.classList.add('hidden');
+  list.innerHTML = data.prints.map(buildStatsRecentItem).join('');
+
+  const total = data.total;
+  const per   = data.per_page;
+  const page  = data.page;
+  const start = (page - 1) * per + 1;
+  const end   = Math.min(page * per, total);
+
+  document.getElementById('prints-page-info').textContent = `${start}–${end} of ${total}`;
+  document.getElementById('prints-prev').disabled = page <= 1;
+  document.getElementById('prints-next').disabled = end >= total;
+  pag.classList.toggle('hidden', total <= per);
+}
+
+function resetPrintsFilters() {
+  document.getElementById('pf-search').value = '';
+  document.getElementById('pf-material').value = '';
+  document.getElementById('pf-min-dur').value = '';
+  document.getElementById('pf-max-dur').value = '';
+  document.getElementById('pf-date-from').value = '';
+  document.getElementById('pf-date-to').value = '';
+  _printsPage = 1;
+  loadPrints();
+}
+
 // ── Print detail modal ────────────────────────────────────────────────────────
 
 let _printDetailId = null;
 
 async function openPrintDetail(id) {
   _printDetailId = id;
+  hideReprintConfirm();
   const overlay = document.getElementById('print-detail-overlay');
   overlay.classList.remove('hidden');
 
@@ -603,6 +685,29 @@ async function savePrintNotes(id) {
     setTimeout(() => { if (status.textContent === 'Saved.') status.textContent = ''; }, 2000);
   } catch (err) {
     status.textContent = `Error: ${err.message}`;
+  }
+}
+
+function showReprintConfirm() {
+  document.getElementById('pd-reprint-btn').classList.add('hidden');
+  document.getElementById('pd-reprint-confirm').classList.remove('hidden');
+}
+
+function hideReprintConfirm() {
+  document.getElementById('pd-reprint-confirm').classList.add('hidden');
+  document.getElementById('pd-reprint-btn').classList.remove('hidden');
+}
+
+async function doReprint() {
+  if (!_printDetailId) return;
+  hideReprintConfirm();
+  try {
+    const result = await api(`/api/print/${encodeURIComponent(_printDetailId)}/reprint`, { method: 'POST' });
+    toast(`Re-print started: ${result.file}`, 'success');
+    closePrintDetail();
+    loadPrinterStatus();
+  } catch (e) {
+    toast(`Re-print failed: ${e.message}`, 'error');
   }
 }
 

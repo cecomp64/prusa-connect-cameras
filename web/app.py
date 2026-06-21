@@ -693,6 +693,156 @@ def get_print_detail(print_id: str):
     }
 
 
+@app.get("/api/prints")
+def list_prints(
+    page: int = 1,
+    per_page: int = 25,
+    search: str = "",
+    material: str = "",
+    min_duration: Optional[int] = None,
+    max_duration: Optional[int] = None,
+    date_from: str = "",
+    date_to: str = "",
+):
+    try:
+        conn = _open_db()
+    except Exception:
+        raise HTTPException(503, "Database unavailable")
+
+    conditions = ["pj.end_ts IS NOT NULL"]
+    params: list = []
+
+    if search:
+        conditions.append("lower(COALESCE(pj.display_name, '')) LIKE lower(?)")
+        params.append(f"%{search}%")
+
+    if material:
+        conditions.append("COALESCE(pj.material, '') = ?")
+        params.append(material)
+
+    if min_duration is not None:
+        conditions.append("pj.duration_seconds >= ?")
+        params.append(min_duration)
+
+    if max_duration is not None:
+        conditions.append("pj.duration_seconds <= ?")
+        params.append(max_duration)
+
+    if date_from:
+        try:
+            ts = int(datetime.strptime(date_from, "%Y-%m-%d").timestamp())
+            conditions.append("pj.start_ts >= ?")
+            params.append(ts)
+        except ValueError:
+            pass
+
+    if date_to:
+        try:
+            ts = int(datetime.strptime(date_to + " 23:59:59", "%Y-%m-%d %H:%M:%S").timestamp())
+            conditions.append("pj.start_ts <= ?")
+            params.append(ts)
+        except ValueError:
+            pass
+
+    where = " AND ".join(conditions)
+    offset = (max(1, page) - 1) * per_page
+
+    with conn:
+        total = (conn.execute(
+            f"SELECT COUNT(*) AS cnt FROM print_jobs pj WHERE {where}", params
+        ).fetchone() or {})["cnt"] or 0
+
+        rows = conn.execute(
+            f"SELECT pj.id, "
+            f"COALESCE(pj.display_name, "
+            f"  (SELECT pt.job_display_name FROM printer_telemetry pt "
+            f"   WHERE pt.ts BETWEEN pj.start_ts AND COALESCE(pj.end_ts, pj.start_ts + 86400) "
+            f"   AND pt.job_display_name IS NOT NULL LIMIT 1)"
+            f") AS display_name, "
+            f"pj.start_ts, pj.end_ts, pj.duration_seconds, pj.end_state, pj.material "
+            f"FROM print_jobs pj WHERE {where} "
+            f"ORDER BY pj.start_ts DESC LIMIT ? OFFSET ?",
+            params + [per_page, offset],
+        ).fetchall()
+
+        material_rows = conn.execute(
+            "SELECT DISTINCT COALESCE(material, '') AS material "
+            "FROM print_jobs "
+            "WHERE end_ts IS NOT NULL AND material IS NOT NULL AND material != '' "
+            "ORDER BY material"
+        ).fetchall()
+
+    return {
+        "prints": [
+            {
+                "id":               r["id"],
+                "display_name":     r["display_name"],
+                "start_time":       datetime.fromtimestamp(r["start_ts"]).isoformat(timespec="seconds") if r["start_ts"] else None,
+                "end_time":         datetime.fromtimestamp(r["end_ts"]).isoformat(timespec="seconds") if r["end_ts"] else None,
+                "duration_seconds": r["duration_seconds"],
+                "end_state":        r["end_state"],
+                "material":         r["material"],
+            }
+            for r in rows
+        ],
+        "total":     total,
+        "page":      page,
+        "per_page":  per_page,
+        "materials": [r["material"] for r in material_rows],
+    }
+
+
+@app.post("/api/print/{print_id}/reprint")
+def reprint_job(print_id: str):
+    from urllib.parse import quote as urlquote
+    try:
+        conn = _open_db()
+    except Exception:
+        raise HTTPException(503, "Database unavailable")
+
+    with conn:
+        job_row = conn.execute(
+            "SELECT display_name FROM print_jobs WHERE id = ?", (print_id,)
+        ).fetchone()
+        if not job_row:
+            raise HTTPException(404, "Print not found")
+
+        display_name = job_row["display_name"]
+        if not display_name:
+            raise HTTPException(400, "No file name associated with this print — cannot re-print")
+
+        file_row = conn.execute(
+            "SELECT storage, path FROM printer_files WHERE display_name = ? LIMIT 1",
+            (display_name,),
+        ).fetchone()
+
+    if not file_row:
+        raise HTTPException(
+            404,
+            f"File '{display_name}' not found on printer — it may have been removed from USB storage",
+        )
+
+    storage = file_row["storage"]
+    path = file_row["path"]
+    if path.startswith(f"{storage}/"):
+        path = path[len(storage) + 1:]
+
+    host, api_key = _pl_config()
+    try:
+        r = requests.post(
+            f"{host}/api/v1/files/{storage}/{urlquote(path)}",
+            headers={"X-Api-Key": api_key},
+            timeout=10,
+        )
+        r.raise_for_status()
+    except requests.HTTPError as exc:
+        raise HTTPException(exc.response.status_code, exc.response.text[:200])
+    except Exception as exc:
+        raise HTTPException(503, str(exc))
+
+    return {"ok": True, "file": display_name}
+
+
 @app.put("/api/print/{print_id}/notes", status_code=204)
 def update_print_notes(print_id: str, body: PrintNotesBody):
     notes = body.notes
