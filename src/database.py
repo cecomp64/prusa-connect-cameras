@@ -172,6 +172,37 @@ class Database:
             self._conn.commit()
             logger.info("Backfilled material for %d print jobs", len(rows))
 
+        # Fix overcounted durations caused by service downtime being included in wall-clock
+        # fallback calculations. For each completed job, if the printer's own time_printing
+        # counter (recorded in telemetry during the job) is less than duration_seconds, use
+        # the telemetry value — it only counts actual active printing time.
+        # Also purge nameless phantom jobs (>24h) left by service restarts during setup.
+        self._conn.execute(
+            "DELETE FROM print_jobs WHERE display_name IS NULL AND duration_seconds > 86400"
+        )
+        self._conn.commit()
+
+        bad_jobs = self._conn.execute(
+            "SELECT id, start_ts, end_ts, duration_seconds FROM print_jobs "
+            "WHERE end_ts IS NOT NULL AND duration_seconds IS NOT NULL AND display_name IS NOT NULL"
+        ).fetchall()
+        fixed = 0
+        for job in bad_jobs:
+            tel = self._conn.execute(
+                "SELECT MAX(job_time_printing) AS best FROM printer_telemetry "
+                "WHERE ts >= ? AND ts <= ? AND job_time_printing IS NOT NULL AND job_time_printing > 0",
+                (job["start_ts"], job["end_ts"]),
+            ).fetchone()
+            if tel and tel["best"] and 0 < tel["best"] < job["duration_seconds"]:
+                self._conn.execute(
+                    "UPDATE print_jobs SET duration_seconds = ? WHERE id = ?",
+                    (tel["best"], job["id"]),
+                )
+                fixed += 1
+        if fixed:
+            self._conn.commit()
+            logger.info("Fixed overcounted duration for %d print jobs", fixed)
+
     # ── Telemetry ─────────────────────────────────────────────────────────────────
 
     def insert_telemetry(self, snapshot: dict) -> None:
@@ -255,7 +286,17 @@ class Database:
                 duration = printer_duration_seconds
             else:
                 start_ts = row["start_ts"] if row else now
-                duration = max(0, (now - start_ts) - paused_seconds)
+                # Prefer the printer's own active-time counter from telemetry over raw wall
+                # clock, which inflates duration when the service was down during a print.
+                tel = self._conn.execute(
+                    "SELECT MAX(job_time_printing) AS best FROM printer_telemetry "
+                    "WHERE ts >= ? AND job_time_printing IS NOT NULL AND job_time_printing > 0",
+                    (start_ts,),
+                ).fetchone()
+                if tel and tel["best"] and tel["best"] > 0:
+                    duration = tel["best"]
+                else:
+                    duration = max(0, (now - start_ts) - paused_seconds)
 
             self._conn.execute(
                 "UPDATE print_jobs SET end_ts=?, duration_seconds=?, end_state=? WHERE id=?",
