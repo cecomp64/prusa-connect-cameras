@@ -709,7 +709,7 @@ def list_prints(
     except Exception:
         raise HTTPException(503, "Database unavailable")
 
-    conditions = ["pj.end_ts IS NOT NULL"]
+    conditions = ["1"]
     params: list = []
 
     if search:

@@ -479,7 +479,8 @@ async function loadStats() {
 function buildStatsRecentItem(p) {
   const name     = esc(p.display_name ?? '(unknown)');
   const dur      = p.duration_seconds != null ? fmtDuration(p.duration_seconds) : '—';
-  const stateRaw = (p.end_state || 'UNKNOWN').toUpperCase();
+  const inProg   = !p.end_time;
+  const stateRaw = inProg ? 'PRINTING' : (p.end_state || 'UNKNOWN').toUpperCase();
   const badgeCls = printerStateBadgeClass(stateRaw);
   const dateStr  = p.start_time ? new Date(p.start_time).toLocaleDateString() : '—';
   return `<div class="stats-recent-item" data-id="${esc(p.id)}">
