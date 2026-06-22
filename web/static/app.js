@@ -483,11 +483,12 @@ function buildStatsRecentItem(p) {
   const stateRaw = inProg ? 'PRINTING' : (p.end_state || 'UNKNOWN').toUpperCase();
   const badgeCls = printerStateBadgeClass(stateRaw);
   const dateStr  = p.start_time ? new Date(p.start_time).toLocaleDateString() : '—';
+  const msgDot   = p.message_count ? `<span class="stats-recent-msg-dot" title="${p.message_count} message${p.message_count === 1 ? '' : 's'}"></span>` : '';
   return `<div class="stats-recent-item" data-id="${esc(p.id)}">
     <span class="stats-recent-name">${name}</span>
     <span class="stats-recent-date">${dateStr}</span>
     <span class="stats-recent-dur">${dur}</span>
-    <span class="printer-badge ${badgeCls}">${stateRaw}</span>
+    ${msgDot}<span class="printer-badge ${badgeCls}">${stateRaw}</span>
   </div>`;
 }
 

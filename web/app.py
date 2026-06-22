@@ -767,7 +767,8 @@ def list_prints(
             f"   WHERE pt.ts BETWEEN pj.start_ts AND COALESCE(pj.end_ts, pj.start_ts + 86400) "
             f"   AND pt.job_display_name IS NOT NULL LIMIT 1)"
             f") AS display_name, "
-            f"pj.start_ts, pj.end_ts, pj.duration_seconds, pj.end_state, pj.material "
+            f"pj.start_ts, pj.end_ts, pj.duration_seconds, pj.end_state, pj.material, "
+            f"(SELECT COUNT(*) FROM printer_messages pm WHERE pm.job_id = pj.id) AS message_count "
             f"FROM print_jobs pj WHERE {where} "
             f"ORDER BY pj.start_ts DESC LIMIT ? OFFSET ?",
             params + [per_page, offset],
@@ -790,6 +791,7 @@ def list_prints(
                 "duration_seconds": r["duration_seconds"],
                 "end_state":        r["end_state"],
                 "material":         r["material"],
+                "message_count":    r["message_count"],
             }
             for r in rows
         ],
