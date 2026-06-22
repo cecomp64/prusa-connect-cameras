@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS printer_telemetry (
     id                 INTEGER PRIMARY KEY,
     ts                 INTEGER NOT NULL,
     state              TEXT    NOT NULL,
+    message            TEXT,
     temp_nozzle        REAL,
     target_nozzle      REAL,
     temp_bed           REAL,
@@ -54,6 +55,7 @@ CREATE TABLE IF NOT EXISTS printer_status (
     id                 INTEGER PRIMARY KEY CHECK (id = 1),
     ts                 INTEGER NOT NULL,
     state              TEXT    NOT NULL,
+    message            TEXT,
     temp_nozzle        REAL,
     target_nozzle      REAL,
     temp_bed           REAL,
@@ -110,10 +112,18 @@ CREATE TABLE IF NOT EXISTS system_metrics (
     mem_total INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sm_ts ON system_metrics(ts DESC);
+
+CREATE TABLE IF NOT EXISTS printer_messages (
+    id      INTEGER PRIMARY KEY,
+    ts      INTEGER NOT NULL,
+    job_id  TEXT    REFERENCES print_jobs(id) ON DELETE SET NULL,
+    message TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_pm_job ON printer_messages(job_id);
 """
 
 _TELEMETRY_COLUMNS = (
-    "state", "temp_nozzle", "target_nozzle", "temp_bed", "target_bed",
+    "state", "message", "temp_nozzle", "target_nozzle", "temp_bed", "target_bed",
     "axis_z", "speed", "flow", "fan_hotend", "fan_print",
     "job_progress", "job_time_remaining", "job_time_printing", "job_display_name",
 )
@@ -146,6 +156,8 @@ class Database:
             "ALTER TABLE youtube_uploads ADD COLUMN file_path TEXT",
             "ALTER TABLE print_jobs ADD COLUMN notes TEXT",
             "ALTER TABLE print_jobs ADD COLUMN material TEXT",
+            "ALTER TABLE printer_telemetry ADD COLUMN message TEXT",
+            "ALTER TABLE printer_status ADD COLUMN message TEXT",
         ]:
             try:
                 self._conn.execute(stmt)
@@ -222,6 +234,14 @@ class Database:
                 f"INSERT OR REPLACE INTO printer_status (id, ts, {', '.join(_TELEMETRY_COLUMNS)}) "
                 f"VALUES (1, ?, {', '.join('?' * len(_TELEMETRY_COLUMNS))})",
                 (int(time.time()), *row),
+            )
+            self._conn.commit()
+
+    def record_printer_message(self, message: str, job_id: str | None) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO printer_messages (ts, job_id, message) VALUES (?, ?, ?)",
+                (int(time.time()), job_id, message),
             )
             self._conn.commit()
 

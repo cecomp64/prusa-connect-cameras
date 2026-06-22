@@ -1063,8 +1063,9 @@ em.muted { font-style: normal; }
 .stats-event-dot--print-finished { background: #3fb950; }
 .stats-event-dot--print-end      { background: var(--text-muted); }
 .stats-event-dot--print-failed   { background: #f85149; }
-.stats-event-dot--upload-done    { background: #58a6ff; }
-.stats-event-dot--upload-error   { background: #f85149; }
+.stats-event-dot--upload-done      { background: #58a6ff; }
+.stats-event-dot--upload-error     { background: #f85149; }
+.stats-event-dot--printer-message  { background: var(--yellow); }
 
 .stats-event-content { display: flex; flex-direction: column; gap: 2px; }
 .stats-event-label { font-family: var(--mono); font-size: 12px; word-break: break-word; }

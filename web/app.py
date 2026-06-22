@@ -290,6 +290,7 @@ def get_printer_status():
         "error":      f"Data is {age}s old — main service may be down" if not reachable else None,
         "printer": {
             "state":         row["state"],
+            "message":       row["message"],
             "temp_nozzle":   row["temp_nozzle"],
             "target_nozzle": row["target_nozzle"],
             "temp_bed":      row["temp_bed"],
@@ -644,6 +645,11 @@ def get_print_detail(print_id: str):
             (print_id,),
         ).fetchall()
 
+        msg_rows = conn.execute(
+            "SELECT ts, message FROM printer_messages WHERE job_id = ? ORDER BY ts",
+            (print_id,),
+        ).fetchall()
+
     recordings = []
     for r in rec_rows:
         dur = None
@@ -676,6 +682,8 @@ def get_print_detail(print_id: str):
     if row["end_ts"]:
         state = row["end_state"] or "?"
         events.append({"ts": row["end_ts"], "type": "print_end", "state": state, "label": f"Print {state.lower()}"})
+    for m in msg_rows:
+        events.append({"ts": m["ts"], "type": "printer_message", "label": m["message"]})
     events.sort(key=lambda e: e["ts"])
     for e in events:
         e["time"] = datetime.fromtimestamp(e["ts"]).isoformat(timespec="seconds")

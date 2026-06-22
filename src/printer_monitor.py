@@ -62,6 +62,7 @@ class PrinterMonitor:
         self._paused_seconds: int = 0            # accumulated pause time for current job
         self._pause_started: float | None = None # wall-clock time current pause began
         self._pending_resume = False  # True when we restored an active job from DB
+        self._last_message: str | None = None  # last seen non-empty printer message
 
         # Restore state from DB so a service restart doesn't look like a fresh start.
         open_job = db.get_open_print_job()
@@ -99,6 +100,12 @@ class PrinterMonitor:
                 snapshot = self._fetch_snapshot()
                 state    = PrinterState(snapshot["state"])
                 self._db.update_printer_status(snapshot)
+
+                message = snapshot.get("message") or None
+                if message != self._last_message:
+                    if message:
+                        self._db.record_printer_message(message, self._current_job_id)
+                    self._last_message = message
 
                 if state in ACTIVE:
                     t = snapshot.get("job_time_printing")
@@ -175,6 +182,7 @@ class PrinterMonitor:
 
         return {
             "state":              state,
+            "message":            printer.get("message") or None,
             "temp_nozzle":        printer.get("temp_nozzle"),
             "target_nozzle":      printer.get("target_nozzle"),
             "temp_bed":           printer.get("temp_bed"),

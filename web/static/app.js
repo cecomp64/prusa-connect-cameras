@@ -646,10 +646,11 @@ async function openPrintDetail(id) {
     document.getElementById('pd-no-events').classList.remove('hidden');
   } else {
     const dotClass = type => {
-      if (type === 'print_start')    return 'stats-event-dot--print-start';
-      if (type === 'print_end')      return 'stats-event-dot--print-end';
-      if (type === 'recording_start') return 'stats-event-dot--upload-done';
-      if (type === 'recording_stop')  return 'stats-event-dot--print-end';
+      if (type === 'print_start')      return 'stats-event-dot--print-start';
+      if (type === 'print_end')        return 'stats-event-dot--print-end';
+      if (type === 'recording_start')  return 'stats-event-dot--upload-done';
+      if (type === 'recording_stop')   return 'stats-event-dot--print-end';
+      if (type === 'printer_message')  return 'stats-event-dot--printer-message';
       return 'stats-event-dot--print-end';
     };
     evList.innerHTML = data.events.map(e => {
@@ -896,6 +897,18 @@ function renderPrinterLive(data, stale) {
 
   document.getElementById('printer-filename').textContent     = job?.display_name ?? '';
   document.getElementById('printer-last-updated').textContent = stale ? 'Last known data' : `Updated ${new Date().toLocaleTimeString()}`;
+
+  const msgEl = document.getElementById('printer-message');
+  const msgText = p.message || '';
+  if (msgText) {
+    document.getElementById('printer-message-text').textContent = msgText;
+    msgEl.classList.remove('hidden');
+    msgEl.style.color = (state === 'ERROR') ? 'var(--red)' : 'var(--yellow)';
+    msgEl.style.background = (state === 'ERROR') ? 'rgba(248,81,73,.08)' : '';
+    msgEl.style.borderBottomColor = (state === 'ERROR') ? 'rgba(248,81,73,.2)' : '';
+  } else {
+    msgEl.classList.add('hidden');
+  }
 
   const fmt1 = v => (v != null ? `${v.toFixed(1)}°C` : '—');
   document.getElementById('ps-nozzle').textContent        = fmt1(p.temp_nozzle);
