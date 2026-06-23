@@ -589,6 +589,9 @@ async function openPrintDetail(id) {
   document.getElementById('pd-notes-status').textContent = '';
   document.getElementById('pd-no-recordings').classList.add('hidden');
   document.getElementById('pd-no-events').classList.add('hidden');
+  const pdIcon = document.getElementById('pd-icon');
+  pdIcon.src = '';
+  pdIcon.classList.add('hidden');
 
   let data;
   try {
@@ -600,6 +603,11 @@ async function openPrintDetail(id) {
 
   const title = data.display_name ?? '(unknown)';
   document.getElementById('print-detail-title').textContent = title;
+
+  if (data.icon_url) {
+    pdIcon.src = data.icon_url;
+    pdIcon.classList.remove('hidden');
+  }
 
   document.getElementById('pd-start').textContent =
     data.start_time ? new Date(data.start_time).toLocaleString() : '—';

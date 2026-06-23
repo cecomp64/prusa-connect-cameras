@@ -688,6 +688,25 @@ def get_print_detail(print_id: str):
     for e in events:
         e["time"] = datetime.fromtimestamp(e["ts"]).isoformat(timespec="seconds")
 
+    # Include icon URL only if the thumbnail is already in the disk cache.
+    icon_url = None
+    display_name = row["display_name"]
+    if display_name:
+        file_row = conn.execute(
+            "SELECT storage, path FROM printer_files WHERE display_name = ? LIMIT 1",
+            (display_name,),
+        ).fetchone()
+        if file_row:
+            from urllib.parse import quote as urlquote
+            storage_val = file_row["storage"]
+            path_val    = file_row["path"]
+            if path_val.startswith(f"{storage_val}/"):
+                path_val = path_val[len(storage_val) + 1:]
+            cache_key = f"{storage_val}/{path_val}"
+            if _icon_cache_path(cache_key).exists():
+                enc_path = "/".join(urlquote(seg, safe="") for seg in path_val.split("/"))
+                icon_url = f"/api/printer/file-icon/{storage_val}/{enc_path}"
+
     return {
         "id":               row["id"],
         "display_name":     row["display_name"],
@@ -698,6 +717,7 @@ def get_print_detail(print_id: str):
         "notes":            row["notes"],
         "recordings":       recordings,
         "events":           events,
+        "icon_url":         icon_url,
     }
 
 

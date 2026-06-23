@@ -1086,6 +1086,9 @@ em.muted { font-style: normal; }
 
 .print-detail-body { padding: 0; display: flex; flex-direction: column; gap: 0; }
 
+.pd-header-info { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.pd-icon { width: 48px; height: 48px; object-fit: contain; border-radius: 4px; background: var(--surface-2, #0d1117); flex-shrink: 0; }
+
 .print-detail-summary {
   display: flex;
   flex-wrap: wrap;
