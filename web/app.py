@@ -688,23 +688,12 @@ def get_print_detail(print_id: str):
     for e in events:
         e["time"] = datetime.fromtimestamp(e["ts"]).isoformat(timespec="seconds")
 
-    # Include icon URL only if the thumbnail is already in the disk cache.
-    icon_url = None
     display_name = row["display_name"]
     if display_name:
-        file_row = conn.execute(
-            "SELECT storage, path FROM printer_files"
-            " WHERE display_name = ? OR name = ? LIMIT 1",
-            (display_name, display_name),
-        ).fetchone()
-        if file_row:
-            from urllib.parse import quote as urlquote
-            storage_val = file_row["storage"]
-            path_val    = file_row["path"]
-            if path_val.startswith(f"{storage_val}/"):
-                path_val = path_val[len(storage_val) + 1:]
-            enc_path = "/".join(urlquote(seg, safe="") for seg in path_val.split("/"))
-            icon_url = f"/api/printer/file-icon/{storage_val}/{enc_path}"
+        from urllib.parse import quote as urlquote
+        icon_url = f"/api/printer/icon-for-print?name={urlquote(display_name)}"
+    else:
+        icon_url = None
 
     return {
         "id":               row["id"],
@@ -1078,6 +1067,42 @@ def _cache_and_serve_icon(cache_path: Path, content: bytes, mime: str) -> Respon
         media_type=mime,
         headers={"Cache-Control": "public, max-age=604800, immutable"},
     )
+
+
+@app.get("/api/printer/icon-for-print")
+def get_print_icon_by_name(name: str):
+    """Serve a print icon given the job display_name / filename.
+
+    Looks up storage+path in printer_files; if not found there (table may be
+    empty until the user visits the Files tab), falls back to trying the name
+    directly as a path on each storage.
+    """
+    # 1. Look up storage + path from the files cache.
+    try:
+        conn = _open_db()
+        file_row = conn.execute(
+            "SELECT storage, path FROM printer_files"
+            " WHERE display_name = ? OR name = ? LIMIT 1",
+            (name, name),
+        ).fetchone()
+    except Exception:
+        file_row = None
+
+    if file_row:
+        storage_val = file_row["storage"]
+        path_val = file_row["path"]
+        if path_val.startswith(f"{storage_val}/"):
+            path_val = path_val[len(storage_val) + 1:]
+        return get_printer_file_icon(storage_val, path_val)
+
+    # 2. Fallback: assume file lives at the root of each storage.
+    for storage_guess in ("usb", "local"):
+        try:
+            return get_printer_file_icon(storage_guess, name)
+        except HTTPException:
+            continue
+
+    raise HTTPException(404, "Icon not found")
 
 
 @app.get("/api/printer/file-icon/{storage}/{path:path}")
