@@ -605,6 +605,7 @@ async function openPrintDetail(id) {
   document.getElementById('print-detail-title').textContent = title;
 
   if (data.icon_url) {
+    pdIcon.onerror = () => pdIcon.classList.add('hidden');
     pdIcon.src = data.icon_url;
     pdIcon.classList.remove('hidden');
   }
