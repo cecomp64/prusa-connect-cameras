@@ -1086,27 +1086,36 @@ em.muted { font-style: normal; }
 
 .print-detail-body { padding: 0; display: flex; flex-direction: column; gap: 0; }
 
-.pd-icon { width: 56px; height: 56px; object-fit: contain; border-radius: 6px; background: var(--surface-2, #0d1117); flex-shrink: 0; }
-
 .print-detail-summary {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  grid-template-areas: "icon meta" "times times";
+  column-gap: 16px;
+  row-gap: 10px;
   padding: 16px 20px;
+  align-items: center;
   border-bottom: 1px solid var(--border);
   background: var(--surface-2);
 }
-.pd-summary-top {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+.pd-icon {
+  grid-area: icon;
+  align-self: center;
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  border-radius: 6px;
+  background: var(--surface-2, #0d1117);
 }
 .pd-summary-meta {
+  grid-area: meta;
   display: flex;
   flex-direction: column;
   gap: 6px;
+  align-self: center;
 }
 .pd-summary-times {
+  grid-area: times;
   display: flex;
   align-items: center;
   gap: 6px;
