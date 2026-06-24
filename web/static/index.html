@@ -488,31 +488,24 @@
   <div id="print-detail-overlay" class="modal-overlay hidden" role="dialog" aria-modal="true">
     <div class="modal modal--wide">
       <div class="modal-header">
-        <div class="pd-header-info">
-          <img id="pd-icon" class="pd-icon hidden" alt="">
-          <h3 id="print-detail-title">Print Details</h3>
-        </div>
+        <h3 id="print-detail-title">Print Details</h3>
         <button class="btn btn-ghost btn-icon" id="print-detail-close" aria-label="Close">&#10005;</button>
       </div>
       <div class="modal-body print-detail-body">
 
         <!-- Summary row -->
         <div class="print-detail-summary">
-          <div class="print-detail-meta-item">
-            <span class="print-detail-meta-label">Started</span>
+          <div class="pd-summary-top">
+            <img id="pd-icon" class="pd-icon hidden" alt="">
+            <div class="pd-summary-meta">
+              <span id="pd-duration" class="print-detail-meta-value"></span>
+              <span id="pd-state"></span>
+            </div>
+          </div>
+          <div class="pd-summary-times">
             <span id="pd-start" class="print-detail-meta-value"></span>
-          </div>
-          <div class="print-detail-meta-item">
-            <span class="print-detail-meta-label">Ended</span>
+            <span class="pd-time-sep">—</span>
             <span id="pd-end" class="print-detail-meta-value"></span>
-          </div>
-          <div class="print-detail-meta-item">
-            <span class="print-detail-meta-label">Duration</span>
-            <span id="pd-duration" class="print-detail-meta-value"></span>
-          </div>
-          <div class="print-detail-meta-item">
-            <span class="print-detail-meta-label">Outcome</span>
-            <span id="pd-state"></span>
           </div>
         </div>
 

@@ -610,10 +610,11 @@ async function openPrintDetail(id) {
     pdIcon.classList.remove('hidden');
   }
 
-  document.getElementById('pd-start').textContent =
-    data.start_time ? new Date(data.start_time).toLocaleString() : '—';
-  document.getElementById('pd-end').textContent =
-    data.end_time ? new Date(data.end_time).toLocaleString() : '—';
+  const fmtTime = iso => iso
+    ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '—';
+  document.getElementById('pd-start').textContent = fmtTime(data.start_time);
+  document.getElementById('pd-end').textContent   = fmtTime(data.end_time);
   document.getElementById('pd-duration').textContent =
     data.duration_seconds != null ? fmtDuration(data.duration_seconds) : '—';
 
