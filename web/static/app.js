@@ -582,6 +582,7 @@ async function openPrintDetail(id) {
   document.getElementById('pd-start').textContent        = '—';
   document.getElementById('pd-end').textContent          = '—';
   document.getElementById('pd-duration').textContent     = '—';
+  document.getElementById('pd-material').textContent     = '';
   document.getElementById('pd-state').innerHTML          = '';
   document.getElementById('pd-recordings-list').innerHTML = '';
   document.getElementById('pd-events-list').innerHTML    = '';
@@ -613,8 +614,9 @@ async function openPrintDetail(id) {
   const fmtTime = iso => iso
     ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
     : '—';
-  document.getElementById('pd-start').textContent = fmtTime(data.start_time);
-  document.getElementById('pd-end').textContent   = fmtTime(data.end_time);
+  document.getElementById('pd-start').textContent    = fmtTime(data.start_time);
+  document.getElementById('pd-end').textContent      = fmtTime(data.end_time);
+  document.getElementById('pd-material').textContent = data.material ?? '';
   document.getElementById('pd-duration').textContent =
     data.duration_seconds != null ? fmtDuration(data.duration_seconds) : '—';
 

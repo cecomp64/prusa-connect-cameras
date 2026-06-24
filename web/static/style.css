@@ -1088,11 +1088,9 @@ em.muted { font-style: normal; }
 
 .print-detail-summary {
   display: grid;
-  grid-template-columns: auto 1fr;
-  grid-template-rows: auto auto;
-  grid-template-areas: "icon meta" "times times";
-  column-gap: 16px;
-  row-gap: 10px;
+  grid-template-columns: auto auto 1fr;
+  grid-template-areas: "icon meta stats";
+  column-gap: 20px;
   padding: 16px 20px;
   align-items: center;
   border-bottom: 1px solid var(--border);
@@ -1100,7 +1098,6 @@ em.muted { font-style: normal; }
 }
 .pd-icon {
   grid-area: icon;
-  align-self: center;
   height: 96px;
   object-fit: contain;
   border-radius: 6px;
@@ -1113,14 +1110,14 @@ em.muted { font-style: normal; }
   gap: 6px;
   justify-content: center;
 }
-.pd-summary-times {
-  grid-area: times;
+.pd-summary-stats {
+  grid-area: stats;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
+  flex-direction: column;
+  gap: 5px;
+  justify-content: center;
 }
+.pd-stat-row { font-size: 12px; color: var(--text-muted); font-family: var(--mono); }
 .pd-time-sep { color: var(--text-muted); }
 .print-detail-meta-value { font-size: 13px; font-family: var(--mono); }
 

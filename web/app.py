@@ -628,7 +628,7 @@ def get_print_detail(print_id: str):
             "   WHERE pt.ts BETWEEN pj.start_ts AND COALESCE(pj.end_ts, pj.start_ts + 86400) "
             "   AND pt.job_display_name IS NOT NULL LIMIT 1)"
             ") AS display_name, "
-            "pj.start_ts, pj.end_ts, pj.duration_seconds, pj.end_state, pj.notes "
+            "pj.start_ts, pj.end_ts, pj.duration_seconds, pj.end_state, pj.notes, pj.material "
             "FROM print_jobs pj WHERE pj.id = ?",
             (print_id,),
         ).fetchone()
@@ -702,6 +702,7 @@ def get_print_detail(print_id: str):
         "end_time":         datetime.fromtimestamp(row["end_ts"]).isoformat(timespec="seconds") if row["end_ts"] else None,
         "duration_seconds": row["duration_seconds"],
         "end_state":        row["end_state"],
+        "material":         row["material"],
         "notes":            row["notes"],
         "recordings":       recordings,
         "events":           events,
