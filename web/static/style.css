@@ -1101,7 +1101,6 @@ em.muted { font-style: normal; }
 .pd-icon {
   grid-area: icon;
   align-self: center;
-  width: 96px;
   height: 96px;
   object-fit: contain;
   border-radius: 6px;
@@ -1112,7 +1111,7 @@ em.muted { font-style: normal; }
   display: flex;
   flex-direction: column;
   gap: 6px;
-  align-self: center;
+  justify-content: center;
 }
 .pd-summary-times {
   grid-area: times;
